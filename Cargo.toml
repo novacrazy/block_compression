@@ -1,0 +1,11 @@
+[package]
+name = "wgsl_bc"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+wgpu = "23"
+pollster = "0.4"
+bytemuck = { version = "1.21", features = ["derive"] }
+ddsfile = "0.5"
+image = "0.25"
