@@ -1,6 +1,6 @@
 use bytemuck::{Pod, Zeroable};
 
-#[derive(Copy, Clone, Debug, Pod, Zeroable)]
+#[derive(Copy, Clone, Debug, Default, Pod, Zeroable)]
 #[repr(C)]
 pub struct Bc6HSettings {
     slow_mode: u32,
