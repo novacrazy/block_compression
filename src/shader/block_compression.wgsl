@@ -15,15 +15,30 @@
 // TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-struct Uniforms {
-    width: u32,
-    height: u32,
-    stride: u32,
+struct BC6HSettings {
+    slow_mode: u32,
+    fast_mode: u32,
+    refine_iterations_1p: i32,
+    refine_iterations_2p: i32,
+    fast_skip_threshold: i32,
 }
 
-@group(0) @binding(0) var<storage, read> src: array<u32>;
-@group(0) @binding(1) var<storage, read_write> dst: array<u32>;
-@group(0) @binding(2) var<uniform> uniforms: Uniforms;
+struct BC7Settings {
+    refine_iterations: array<u32, 8>,
+    mode_selection: vec4<u32>,
+    skip_mode2: u32,
+    fast_skip_threshold_mode1: u32,
+    fast_skip_threshold_mode3: u32,
+    fast_skip_threshold_mode7: u32,
+    mode45_channel0: u32,
+    refine_iterations_channel: u32,
+    channels: u32,
+}
+
+@group(0) @binding(0) var source_texture: texture_2d<f32>;
+@group(0) @binding(1) var<storage, read_write> output_buffer: array<u32>;
+@group(0) @binding(2) var<storage, read> bc6h_settings: BC6HSettings;
+@group(0) @binding(3) var<storage, read> bc7_settings: BC7Settings;
 
 var<private> block: array<f32, 64>;
 
@@ -39,30 +54,91 @@ fn rcp(x: f32) -> f32 {
     return 1.0 / x;
 }
 
+// Data is stored planar:
+// RRRR|RRRR|RRRR|RRRR
+// GGGG|GGGG|GGGG|GGGG
+// BBBB|BBBB|BBBB|BBBB
+// AAAA|AAAA|AAAA|AAAA
 fn load_block_interleaved_rgba(xx: u32, yy: u32) {
     for (var y = 0u; y < 4u; y++) {
         for (var x = 0u; x < 4u; x++) {
-            let src_offset = (yy * 4u + y) * uniforms.stride / 4u;
-            let rgba = src[src_offset + xx * 4u + x];
+            let pixel_x = xx * 4u + x;
+            let pixel_y = yy * 4u + y;
+            let rgba = textureLoad(source_texture, vec2<u32>(pixel_x, pixel_y), 0);
 
-            block[16u * 0u + y * 4u + x] = f32((rgba >>  0u) & 255u);
-            block[16u * 1u + y * 4u + x] = f32((rgba >>  8u) & 255u);
-            block[16u * 2u + y * 4u + x] = f32((rgba >> 16u) & 255u);
-            block[16u * 3u + y * 4u + x] = f32((rgba >> 24u) & 255u);
+            block[16u * 0u + y * 4u + x] = rgba.r * 255.0;
+            block[16u * 1u + y * 4u + x] = rgba.g * 255.0;
+            block[16u * 2u + y * 4u + x] = rgba.b * 255.0;
+            block[16u * 3u + y * 4u + x] = rgba.a * 255.0;
         }
     }
 }
 
-fn store_data(xx: u32, yy: u32, data: array<u32, 4>) {
-    let blocks_per_row = (uniforms.width + 3u) / 4u;
-    let dst_offset = (yy * blocks_per_row + xx) * 4u;
+fn load_block_r_8bit(xx: u32, yy: u32) {
+    for (var y = 0u; y < 4u; y++) {
+        for (var x = 0u; x < 4u; x++) {
+            let pixel_x = xx * 4u + x;
+            let pixel_y = yy * 4u + y;
+            let red = textureLoad(source_texture, vec2<u32>(pixel_x, pixel_y), 0).r;
 
-    for (var k = 0u; k < 4u; k++) {
-        dst[dst_offset + k] = data[k];
+            block[48u + y * 4u + x] = red * 255.0;
+        }
     }
 }
 
-fn compute_covar_dc_ugly(
+fn load_block_g_8bit(xx: u32, yy: u32) {
+    for (var y = 0u; y < 4u; y++) {
+        for (var x = 0u; x < 4u; x++) {
+            let pixel_x = xx * 4u + x;
+            let pixel_y = yy * 4u + y;
+            let green = textureLoad(source_texture, vec2<u32>(pixel_x, pixel_y), 0).g;
+
+            block[48u + y * 4u + x] = green * 255.0;
+        }
+    }
+}
+
+fn load_block_alpha_4bit(xx: u32, yy: u32) -> array<u32, 2> {
+    var alpha_bits: array<u32, 2>;
+
+    for (var y = 0u; y < 4u; y++) {
+        for (var x = 0u; x < 4u; x++) {
+            let pixel_x = xx * 4u + x;
+            let pixel_y = yy * 4u + y;
+            let alpha = textureLoad(source_texture, vec2<u32>(pixel_x, pixel_y), 0).a;
+
+            // Convert alpha to 4 bits (0-15)
+            let alpha4 = u32(alpha * 15.0);
+            let bit_position = y * 16u + x * 4u;
+
+            if (bit_position < 32u) {
+                alpha_bits[0] |= (alpha4 << bit_position);
+            } else {
+                alpha_bits[1] |= (alpha4 << (bit_position - 32u));
+            }
+        }
+    }
+
+    return alpha_bits;
+}
+
+fn store_data_2(block_width: u32, xx: u32, yy: u32, data: array<u32, 2>) {
+    let offset = yy * block_width * 2u + xx * 2u;
+
+    output_buffer[offset + 0] = data[0];
+    output_buffer[offset + 1] = data[1];
+}
+
+fn store_data_4(block_width: u32, xx: u32, yy: u32, data: array<u32, 4>) {
+    let offset = yy * block_width * 4u + xx * 4u;
+
+    output_buffer[offset + 0] = data[0];
+    output_buffer[offset + 1] = data[1];
+    output_buffer[offset + 2] = data[2];
+    output_buffer[offset + 3] = data[3];
+}
+
+fn compute_covar_dc(
     covar: ptr<function, array<f32, 6>>,
     dc: ptr<function, array<f32, 3>>,
 ) {
@@ -184,16 +260,12 @@ fn dec_rgb565(c: ptr<function, array<f32, 3>>, p: i32) {
     (*c)[2] = f32((c2 << 3) + (c2 >> 2));
 }
 
-fn stb__As16Bit(r: i32, g: i32, b: i32) -> i32 {
-    return ((r >> 3) << 11) + ((g >> 2) << 5) + (b >> 3);
-}
-
 fn enc_rgb565(c: ptr<function, array<f32, 3>>) -> i32 {
-    return stb__As16Bit(
-        i32((*c)[0]),
-        i32((*c)[1]),
-        i32((*c)[2])
-    );
+    let r = i32((*c)[0]);
+    let g = i32((*c)[1]);
+    let b = i32((*c)[2]);
+
+    return ((r >> 3) << 11) + ((g >> 2) << 5) + (b >> 3);
 }
 
 fn fast_quant(p0: i32, p1: i32) -> u32 {
@@ -310,7 +382,7 @@ fn compress_block_bc1_core() -> array<u32, 2> {
 
     var covar: array<f32, 6>;
     var dc: array<f32, 3>;
-    compute_covar_dc_ugly(&covar, &dc);
+    compute_covar_dc(&covar, &dc);
 
     let eps = 0.001;
     covar[0] += eps;
@@ -397,12 +469,69 @@ fn compress_block_bc3_alpha() -> array<u32, 2> {
 
 @compute
 @workgroup_size(8, 8)
+fn compress_bc1(@builtin(global_invocation_id) global_id: vec3<u32>) {
+    let xx = global_id.x;
+    let yy = global_id.y;
+
+    let texture_dimensions: vec2<u32> = textureDimensions(source_texture);
+
+    let block_width = (texture_dimensions.x + 3u) / 4u;
+    let block_height = (texture_dimensions.y + 3u) / 4u;
+
+    if (xx >= block_width || yy >= block_height) {
+        return;
+    }
+
+    load_block_interleaved_rgba(xx, yy);
+    var compressed_data: array<u32, 2>;
+
+    let color_result = compress_block_bc1_core();
+    compressed_data[0] = color_result[0];
+    compressed_data[1] = color_result[1];
+
+    store_data_2(block_width, xx, yy, compressed_data);
+}
+
+@compute
+@workgroup_size(8, 8)
+fn compress_bc2(@builtin(global_invocation_id) global_id: vec3<u32>) {
+    let xx = global_id.x;
+    let yy = global_id.y;
+
+    let texture_dimensions: vec2<u32> = textureDimensions(source_texture);
+
+    let block_width = (texture_dimensions.x + 3u) / 4u;
+    let block_height = (texture_dimensions.y + 3u) / 4u;
+
+    if (xx >= block_width || yy >= block_height) {
+        return;
+    }
+
+    var compressed_data: array<u32, 4>;
+
+    let alpha_result = load_block_alpha_4bit(xx, yy);
+    compressed_data[0] = alpha_result[0];
+    compressed_data[1] = alpha_result[1];
+
+    load_block_interleaved_rgba(xx, yy);
+
+    let color_result = compress_block_bc1_core();
+    compressed_data[2] = color_result[0];
+    compressed_data[3] = color_result[1];
+
+    store_data_4(block_width, xx, yy, compressed_data);
+}
+
+@compute
+@workgroup_size(8, 8)
 fn compress_bc3(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let xx = global_id.x;
     let yy = global_id.y;
 
-    let block_width = (uniforms.width + 3u) / 4u;
-    let block_height = (uniforms.height + 3u) / 4u;
+    let texture_dimensions: vec2<u32> = textureDimensions(source_texture);
+
+    let block_width = (texture_dimensions.x + 3u) / 4u;
+    let block_height = (texture_dimensions.y + 3u) / 4u;
 
     if (xx >= block_width || yy >= block_height) {
         return;
@@ -419,5 +548,100 @@ fn compress_bc3(@builtin(global_invocation_id) global_id: vec3<u32>) {
     compressed_data[2] = color_result[0];
     compressed_data[3] = color_result[1];
 
-    store_data(xx, yy, compressed_data);
+    store_data_4(block_width, xx, yy, compressed_data);
+}
+
+@compute
+@workgroup_size(8, 8)
+fn compress_bc4(@builtin(global_invocation_id) global_id: vec3<u32>) {
+    let xx = global_id.x;
+    let yy = global_id.y;
+
+    let texture_dimensions: vec2<u32> = textureDimensions(source_texture);
+
+    let block_width = (texture_dimensions.x + 3u) / 4u;
+    let block_height = (texture_dimensions.y + 3u) / 4u;
+
+    if (xx >= block_width || yy >= block_height) {
+        return;
+    }
+
+    load_block_r_8bit(xx, yy);
+    var compressed_data: array<u32, 2>;
+
+    let color_result = compress_block_bc3_alpha();
+    compressed_data[0] = color_result[0];
+    compressed_data[1] = color_result[1];
+
+    store_data_2(block_width, xx, yy, compressed_data);
+}
+
+@compute
+@workgroup_size(8, 8)
+fn compress_bc5(@builtin(global_invocation_id) global_id: vec3<u32>) {
+    let xx = global_id.x;
+    let yy = global_id.y;
+
+    let texture_dimensions: vec2<u32> = textureDimensions(source_texture);
+
+    let block_width = (texture_dimensions.x + 3u) / 4u;
+    let block_height = (texture_dimensions.y + 3u) / 4u;
+
+    if (xx >= block_width || yy >= block_height) {
+        return;
+    }
+
+    var compressed_data: array<u32, 4>;
+
+    load_block_r_8bit(xx, yy);
+    let red_result = compress_block_bc3_alpha();
+    compressed_data[0] = red_result[0];
+    compressed_data[1] = red_result[1];
+
+    load_block_g_8bit(xx, yy);
+    let green_result = compress_block_bc3_alpha();
+    compressed_data[2] = green_result[0];
+    compressed_data[3] = green_result[1];
+
+    store_data_4(block_width, xx, yy, compressed_data);
+}
+
+@compute
+@workgroup_size(8, 8)
+fn compress_bc6h(@builtin(global_invocation_id) global_id: vec3<u32>) {
+    let xx = global_id.x;
+    let yy = global_id.y;
+
+    let texture_dimensions: vec2<u32> = textureDimensions(source_texture);
+
+    let block_width = (texture_dimensions.x + 3u) / 4u;
+    let block_height = (texture_dimensions.y + 3u) / 4u;
+
+    if (xx >= block_width || yy >= block_height) {
+        return;
+    }
+
+    var compressed_data: array<u32, 4>;
+
+    // TODO: NHA implement BC6H
+}
+
+@compute
+@workgroup_size(8, 8)
+fn compress_bc7(@builtin(global_invocation_id) global_id: vec3<u32>) {
+    let xx = global_id.x;
+    let yy = global_id.y;
+
+    let texture_dimensions: vec2<u32> = textureDimensions(source_texture);
+
+    let block_width = (texture_dimensions.x + 3u) / 4u;
+    let block_height = (texture_dimensions.y + 3u) / 4u;
+
+    if (xx >= block_width || yy >= block_height) {
+        return;
+    }
+
+    var compressed_data: array<u32, 4>;
+
+    // TODO: NHA implement BC7
 }
