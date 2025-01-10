@@ -25,7 +25,7 @@ struct BC6HSettings {
 
 struct BC7Settings {
     refine_iterations: array<u32, 8>,
-    mode_selection: vec4<u32>,
+    mode_selection: array<u32, 4>,
     skip_mode2: u32,
     fast_skip_threshold_mode1: u32,
     fast_skip_threshold_mode3: u32,
@@ -33,6 +33,12 @@ struct BC7Settings {
     mode45_channel0: u32,
     refine_iterations_channel: u32,
     channels: u32,
+}
+
+struct BC7EncodingState {
+    best_data: array<u32, 5>,
+    best_err: f32,
+    opaque_err: f32,
 }
 
 @group(0) @binding(0) var source_texture: texture_2d<f32>;
@@ -626,6 +632,408 @@ fn compress_bc6h(@builtin(global_invocation_id) global_id: vec3<u32>) {
     // TODO: NHA implement BC6H
 }
 
+fn get_unquant_table(bits: u32) -> array<u32, 16> {
+    switch (bits) {
+        case 2u: {
+            return array<u32, 16>(
+                0u, 21u, 43u, 64u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u
+            );
+        }
+        case 3u: {
+            return array<u32, 16>(
+                0u, 9u, 18u, 27u, 37u, 46u, 55u, 64u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u
+            );
+        }
+        default: {
+            return array<u32, 16>(
+                0u, 4u, 9u, 13u, 17u, 21u, 26u, 30u, 34u, 38u, 43u, 47u, 51u, 55u, 60u, 64u
+            );
+        }
+    }
+}
+
+fn get_pattern(part_id: i32) -> u32 {
+    let pattern_table = array<u32, 128>(
+        0x50505050u, 0x40404040u, 0x54545454u, 0x54505040u, 0x50404000u, 0x55545450u, 0x55545040u, 0x54504000u,
+		0x50400000u, 0x55555450u, 0x55544000u, 0x54400000u, 0x55555440u, 0x55550000u, 0x55555500u, 0x55000000u,
+		0x55150100u, 0x00004054u, 0x15010000u, 0x00405054u, 0x00004050u, 0x15050100u, 0x05010000u, 0x40505054u,
+		0x00404050u, 0x05010100u, 0x14141414u, 0x05141450u, 0x01155440u, 0x00555500u, 0x15014054u, 0x05414150u,
+		0x44444444u, 0x55005500u, 0x11441144u, 0x05055050u, 0x05500550u, 0x11114444u, 0x41144114u, 0x44111144u,
+		0x15055054u, 0x01055040u, 0x05041050u, 0x05455150u, 0x14414114u, 0x50050550u, 0x41411414u, 0x00141400u,
+		0x00041504u, 0x00105410u, 0x10541000u, 0x04150400u, 0x50410514u, 0x41051450u, 0x05415014u, 0x14054150u,
+		0x41050514u, 0x41505014u, 0x40011554u, 0x54150140u, 0x50505500u, 0x00555050u, 0x15151010u, 0x54540404u,
+		0xAA685050u, 0x6A5A5040u, 0x5A5A4200u, 0x5450A0A8u, 0xA5A50000u, 0xA0A05050u, 0x5555A0A0u, 0x5A5A5050u,
+		0xAA550000u, 0xAA555500u, 0xAAAA5500u, 0x90909090u, 0x94949494u, 0xA4A4A4A4u, 0xA9A59450u, 0x2A0A4250u,
+		0xA5945040u, 0x0A425054u, 0xA5A5A500u, 0x55A0A0A0u, 0xA8A85454u, 0x6A6A4040u, 0xA4A45000u, 0x1A1A0500u,
+		0x0050A4A4u, 0xAAA59090u, 0x14696914u, 0x69691400u, 0xA08585A0u, 0xAA821414u, 0x50A4A450u, 0x6A5A0200u,
+		0xA9A58000u, 0x5090A0A8u, 0xA8A09050u, 0x24242424u, 0x00AA5500u, 0x24924924u, 0x24499224u, 0x50A50A50u,
+		0x500AA550u, 0xAAAA4444u, 0x66660000u, 0xA5A0A5A0u, 0x50A050A0u, 0x69286928u, 0x44AAAA44u, 0x66666600u,
+		0xAA444444u, 0x54A854A8u, 0x95809580u, 0x96969600u, 0xA85454A8u, 0x80959580u, 0xAA141414u, 0x96960000u,
+		0xAAAA1414u, 0xA05050A0u, 0xA0A5A5A0u, 0x96000000u, 0x40804080u, 0xA9A8A9A8u, 0xAAAAAA44u, 0x2A4A5254u,
+    );
+
+    return pattern_table[part_id];
+}
+
+fn get_pattern_mask(part_id: i32, j: u32) -> u32 {
+    let pattern_mask_table = array<u32, 128>(
+		0xCCCC3333u, 0x88887777u, 0xEEEE1111u, 0xECC81337u, 0xC880377Fu, 0xFEEC0113u, 0xFEC80137u, 0xEC80137Fu,
+		0xC80037FFu, 0xFFEC0013u, 0xFE80017Fu, 0xE80017FFu, 0xFFE80017u, 0xFF0000FFu, 0xFFF0000Fu, 0xF0000FFFu,
+		0xF71008EFu, 0x008EFF71u, 0x71008EFFu, 0x08CEF731u, 0x008CFF73u, 0x73108CEFu, 0x3100CEFFu, 0x8CCE7331u,
+		0x088CF773u, 0x3110CEEFu, 0x66669999u, 0x366CC993u, 0x17E8E817u, 0x0FF0F00Fu, 0x718E8E71u, 0x399CC663u,
+		0xAAAA5555u, 0xF0F00F0Fu, 0x5A5AA5A5u, 0x33CCCC33u, 0x3C3CC3C3u, 0x55AAAA55u, 0x96966969u, 0xA55A5AA5u,
+		0x73CE8C31u, 0x13C8EC37u, 0x324CCDB3u, 0x3BDCC423u, 0x69969669u, 0xC33C3CC3u, 0x99666699u, 0x0660F99Fu,
+		0x0272FD8Du, 0x04E4FB1Bu, 0x4E40B1BFu, 0x2720D8DFu, 0xC93636C9u, 0x936C6C93u, 0x39C6C639u, 0x639C9C63u,
+		0x93366CC9u, 0x9CC66339u, 0x817E7E81u, 0xE71818E7u, 0xCCF0330Fu, 0x0FCCF033u, 0x774488BBu, 0xEE2211DDu,
+		0x08CC0133u, 0x8CC80037u, 0xCC80006Fu, 0xEC001331u, 0x330000FFu, 0x00CC3333u, 0xFF000033u, 0xCCCC0033u,
+		0x0F0000FFu, 0x0FF0000Fu, 0x00F0000Fu, 0x44443333u, 0x66661111u, 0x22221111u, 0x136C0013u, 0x008C8C63u,
+		0x36C80137u, 0x08CEC631u, 0x3330000Fu, 0xF0000333u, 0x00EE1111u, 0x88880077u, 0x22C0113Fu, 0x443088CFu,
+		0x0C22F311u, 0x03440033u, 0x69969009u, 0x9960009Fu, 0x03303443u, 0x00660699u, 0xC22C3113u, 0x8C0000EFu,
+		0x1300007Fu, 0xC4003331u, 0x004C1333u, 0x22229999u, 0x00F0F00Fu, 0x24929249u, 0x29429429u, 0xC30C30C3u,
+		0xC03C3C03u, 0x00AA0055u, 0xAA0000FFu, 0x30300303u, 0xC0C03333u, 0x90900909u, 0xA00A5005u, 0xAAA0000Fu,
+		0x0AAA0555u, 0xE0E01111u, 0x70700707u, 0x6660000Fu, 0x0EE01111u, 0x07707007u, 0x06660999u, 0x660000FFu,
+		0x00660099u, 0x0CC03333u, 0x03303003u, 0x60000FFFu, 0x80807777u, 0x10100101u, 0x000A0005u, 0x08CE8421u,
+    );
+
+    let mask_packed = pattern_mask_table[part_id];
+    let mask0 = mask_packed & 0xFFFFu;
+    let mask1 = mask_packed >> 16u;
+
+    return select(select(mask1, mask0, j == 0), ~mask0 & ~mask1, j == 2);
+}
+
+fn get_skips(part_id: i32) -> array<u32, 3> {
+    let skip_table = array<u32, 128>(
+        0xf0u, 0xf0u, 0xf0u, 0xf0u, 0xf0u, 0xf0u, 0xf0u, 0xf0u, 0xf0u, 0xf0u, 0xf0u, 0xf0u, 0xf0u, 0xf0u, 0xf0u, 0xf0u,
+        0xf0u, 0x20u, 0x80u, 0x20u, 0x20u, 0x80u, 0x80u, 0xf0u, 0x20u, 0x80u, 0x20u, 0x20u, 0x80u, 0x80u, 0x20u, 0x20u,
+        0xf0u, 0xf0u, 0x60u, 0x80u, 0x20u, 0x80u, 0xf0u, 0xf0u, 0x20u, 0x80u, 0x20u, 0x20u, 0x20u, 0xf0u, 0xf0u, 0x60u,
+        0x60u, 0x20u, 0x60u, 0x80u, 0xf0u, 0xf0u, 0x20u, 0x20u, 0xf0u, 0xf0u, 0xf0u, 0xf0u, 0xf0u, 0x20u, 0x20u, 0xf0u,
+        0x3fu, 0x38u, 0xf8u, 0xf3u, 0x8fu, 0x3fu, 0xf3u, 0xf8u, 0x8fu, 0x8fu, 0x6fu, 0x6fu, 0x6fu, 0x5fu, 0x3fu, 0x38u,
+        0x3fu, 0x38u, 0x8fu, 0xf3u, 0x3fu, 0x38u, 0x6fu, 0xa8u, 0x53u, 0x8fu, 0x86u, 0x6au, 0x8fu, 0x5fu, 0xfau, 0xf8u,
+		0x8fu, 0xf3u, 0x3fu, 0x5au, 0x6au, 0xa8u, 0x89u, 0xfau, 0xf6u, 0x3fu, 0xf8u, 0x5fu, 0xf3u, 0xf6u, 0xf6u, 0xf8u,
+        0x3fu, 0xf3u, 0x5fu, 0x5fu, 0x5fu, 0x8fu, 0x5fu, 0xafu, 0x5fu, 0xafu, 0x8fu, 0xdfu, 0xf3u, 0xcfu, 0x3fu, 0x38u,
+    );
+
+    let skip_packed = skip_table[part_id];
+
+    var skips: array<u32, 3>;
+    skips[0] = 0u;
+    skips[1] = skip_packed >> 4u;
+    skips[2] = skip_packed & 15u;
+    return skips;
+}
+
+fn partial_sort_list(list: ptr<function, array<u32, 64>>, length: u32, partial_count: u32) {
+    for (var k = 0u; k < partial_count; k++) {
+        var best_idx = k;
+        var best_value = (*list)[k];
+
+        for (var i = k + 1u; i < length; i++) {
+            if (best_value > (*list)[i]) {
+                best_value = (*list)[i];
+                best_idx = i;
+            }
+        }
+
+        let temp = (*list)[k];
+        (*list)[k] = best_value;
+        (*list)[best_idx] = temp;
+    }
+}
+
+fn put_bits(data: ptr<function, array<u32, 5>>, pos: ptr<function, u32>, bits: u32, v: u32) {
+    (*data)[(*pos) / 32u] |= v << ((*pos) % 32u);
+    if ((*pos) % 32u + bits > 32u) {
+        (*data)[(*pos) / 32u + 1u] |= v >> (32u - (*pos) % 32u);
+    }
+    *pos += bits;
+}
+
+fn data_shl_1bit_from(data: ptr<function, array<u32, 5>>, from_bits: u32) {
+    if (from_bits < 96u) {
+        let shifted = ((*data)[2] >> 1u) | ((*data)[3] << 31u);
+        let mask = ((1u << (from_bits - 64u)) - 1u) >> 1u;
+        (*data)[2] = (mask & (*data)[2]) | (~mask & shifted);
+        (*data)[3] = ((*data)[3] >> 1u) | ((*data)[4] << 31u);
+        (*data)[4] = (*data)[4] >> 1u;
+    } else if (from_bits < 128u) {
+        let shifted = ((*data)[3] >> 1u) | ((*data)[4] << 31u);
+        let mask = ((1u << (from_bits - 96u)) - 1u) >> 1u;
+        (*data)[3] = (mask & (*data)[3]) | (~mask & shifted);
+        (*data)[4] = (*data)[4] >> 1u;
+    }
+}
+
+fn bc7_code_qblock(data: ptr<function, array<u32, 5>>, qpos: ptr<function, u32>, qblock: ptr<function, array<u32, 2>>, bits: u32, flips: u32) {
+    let levels = 1u << bits;
+    var flips_shifted = flips;
+
+    for (var k1 = 0u; k1 < 2u; k1++) {
+        var qbits_shifted = (*qblock)[k1];
+        for (var k2 = 0u; k2 < 8u; k2++) {
+            var q = qbits_shifted & 15u;
+            if ((flips_shifted & 1u) > 0u) {
+                q = (levels - 1u) - q;
+            }
+
+            if (k1 == 0u && k2 == 0u) {
+                put_bits(data, qpos, bits - 1u, q);
+            } else {
+                put_bits(data, qpos, bits, q);
+            }
+            qbits_shifted >>= 4u;
+            flips_shifted >>= 1u;
+        }
+    }
+}
+
+fn bc7_code_adjust_skip_mode01237(data: ptr<function, array<u32, 5>>, mode: u32, part_id: i32) {
+    let pairs = select(2u, 3u, mode == 0u || mode == 2u);
+    let bits = select(2u, 3u, mode == 0u || mode == 1u);
+
+    var skips = get_skips(part_id);
+
+    if (pairs > 2u && skips[1] < skips[2]) {
+        let t = skips[1];
+        skips[1] = skips[2];
+        skips[2] = t;
+    }
+
+    for (var j = 1u; j < pairs; j++) {
+        let k = skips[j];
+        data_shl_1bit_from(data, 128u + (pairs - 1u) - (15u - k) * bits);
+    }
+}
+
+fn bc7_code_apply_swap_mode01237(qep: ptr<function, array<i32, 24>>, qblock: ptr<function, array<u32, 2>>, mode: u32, part_id: i32) -> u32 {
+    let bits = select(2u, 3u, mode == 0u || mode == 1u);
+    let pairs = select(2u, 3u, mode == 0u || mode == 2u);
+
+    var flips = 0u;
+    let levels = 1u << bits;
+
+    let skips = get_skips(part_id);
+
+    for (var j = 0u; j < pairs; j++) {
+        let k0 = skips[j];
+        // Extract 4 bits from qblock at position k0
+        let q = ((*qblock)[k0 >> 3u] << (28u - (k0 & 7u) * 4u)) >> 28u;
+
+        if (q >= levels / 2u) {
+            for (var p = 0u; p < 4u; p++) {
+                let temp = (*qep)[8u * j + p];
+                (*qep)[8u * j + p] = (*qep)[8u * j + 4u + p];
+                (*qep)[8u * j + 4u + p] = temp;
+            }
+
+            let pmask = get_pattern_mask(part_id, j);
+            flips |= u32(pmask);
+        }
+    }
+
+    return flips;
+}
+
+fn bc7_code_mode01237(data: ptr<function, array<u32, 5>>, qep: ptr<function, array<i32, 24>>, qblock: ptr<function, array<u32, 2>>, part_id: i32, mode: u32) {
+    let bits = select(2u, 3u, mode == 0u || mode == 1u);
+    let pairs = select(2u, 3u, mode == 0u || mode == 2u);
+    let channels = select(3u, 4u, mode == 7u);
+
+    let flips = bc7_code_apply_swap_mode01237(qep, qblock, mode, part_id);
+
+    for (var k = 0u; k < 5u; k++) {
+        (*data)[k] = 0u;
+    }
+
+    var pos = 0u;
+
+    // Mode 0-3, 7
+    put_bits(data, &pos, mode + 1u, 1u << mode);
+
+    // Partition
+    if (mode == 0u) {
+        put_bits(data, &pos, 4u, u32(part_id & 15));
+    } else {
+        put_bits(data, &pos, 6u, u32(part_id & 63));
+    }
+
+    // Endpoints
+    for (var p = 0u; p < channels; p++) {
+        for (var j = 0u; j < pairs * 2u; j++) {
+            if (mode == 0u) {
+                put_bits(data, &pos, 4u, u32((*qep)[j * 4u + p]) >> 1u);
+            } else if (mode == 1u) {
+                put_bits(data, &pos, 6u, u32((*qep)[j * 4u + p]) >> 1u);
+            } else if (mode == 2u) {
+                put_bits(data, &pos, 5u, u32((*qep)[j * 4u + p]));
+            } else if (mode == 3u) {
+                put_bits(data, &pos, 7u, u32((*qep)[j * 4u + p]) >> 1u);
+            } else if (mode == 7u) {
+                put_bits(data, &pos, 5u, u32((*qep)[j * 4u + p]) >> 1u);
+            }
+        }
+    }
+
+    // P bits
+    if (mode == 1u) {
+        for (var j = 0u; j < 2u; j++) {
+            put_bits(data, &pos, 1u, u32((*qep)[j * 8u]) & 1u);
+        }
+    }
+
+    if (mode == 0u || mode == 3u || mode == 7u) {
+        for (var j = 0u; j < pairs * 2u; j++) {
+            put_bits(data, &pos, 1u, u32((*qep)[j * 4u]) & 1u);
+        }
+    }
+
+    // Quantized values
+    bc7_code_qblock(data, &pos, qblock, bits, flips);
+    bc7_code_adjust_skip_mode01237(data, mode, part_id);
+}
+
+fn bc7_enc_mode01237_part_fast(qep: ptr<function, array<i32, 24>>, qblock: ptr<function, array<u32, 2>>, part_id: i32, mode: u32) -> f32 {
+    let pattern = get_pattern(part_id);
+    let bits = select(2u, 3u, mode == 0u || mode == 1u);
+    let pairs = select(2u, 3u, mode == 0u || mode == 2u);
+    let channels = select(3u, 4u, mode == 7u);
+
+    var ep: array<f32, 24>;
+    for (var j = 0u; j < pairs; j++) {
+        let mask = get_pattern_mask(part_id, j);
+        // TODO
+        //block_segment(&ep[j * 8], block, mask, channels);
+    }
+
+    // TODO
+    //ep_quant_dequant(qep, &ep, mode, channels);
+
+    // TODO
+    //return block_quant(qblock, bits, &ep, pattern, channels);
+    return 0.0;
+}
+
+fn bc7_enc_mode01237(state: ptr<function, BC7EncodingState>, mode: u32, part_list: array<i32, 64>, part_count: u32) {
+    if (part_count == 0u) {
+        return;
+    }
+
+    let bits = select(2u, 3u, mode == 0u || mode == 1u);
+    let pairs = select(2u, 3u, mode == 0u || mode == 2u);
+    let channels = select(3u, 4u, mode == 7u);
+
+    var best_qep: array<i32, 24>;
+    var best_qblock: array<u32, 2>;
+    var best_part_id = -1;
+    var best_err = 3.40282347e38;
+
+    for (var part = 0u; part < part_count; part++) {
+        var part_id = part_list[part] & 63;
+        part_id = select(part_id, part_id + 64, pairs == 3);
+
+        var qep: array<i32, 24>;
+        var qblock: array<u32, 2>;
+        let err = bc7_enc_mode01237_part_fast(&qep, &qblock, part_id, mode);
+
+        if (err < best_err) {
+            for (var i = 0u; i < 8u * pairs; i++) {
+                best_qep[i] = qep[i];
+            }
+            for (var k = 0u; k < 2u; k++) {
+                best_qblock[k] = qblock[k];
+            }
+
+            best_part_id = part_id;
+            best_err = err;
+        }
+    }
+
+    let refine_iterations = bc7_settings.refine_iterations[mode];
+    for (var i = 0u; i < refine_iterations; i++) {
+        var ep: array<f32, 24>;
+        for (var j = 0u; j < pairs; j++) {
+            let mask = get_pattern_mask(best_part_id, j);
+            // TODO
+            //opt_endpoints(&ep[j * 8], bits, best_qblock, mask, channels);
+        }
+
+        var qep: array<i32, 24>;
+        var qblock: array<u32, 2>;
+
+        // TODO
+        //ep_quant_dequant(&qep, &ep, mode, channels);
+
+        let pattern = get_pattern(best_part_id);
+        // TODO
+        //let err = block_quant(&qblock, bits, ep, pattern, channels);
+        let err = 0.0;
+
+        if (err < best_err) {
+            for (var i = 0u; i < 8u * pairs; i++) {
+                best_qep[i] = qep[i];
+            }
+            for (var k = 0u; k < 2u; k++) {
+                best_qblock[k] = qblock[k];
+            }
+
+            best_err = err;
+        }
+    }
+
+    if (mode != 7u) {
+        best_err += (*state).opaque_err;
+    }
+
+    if (best_err < (*state).best_err) {
+        (*state).best_err = best_err;
+        bc7_code_mode01237(&(*state).best_data, &best_qep, &best_qblock, best_part_id, mode);
+    }
+}
+
+fn bc7_enc_mode02(state: ptr<function, BC7EncodingState>) {
+    var part_list: array<i32, 64>;
+    for (var part = 0; part < 64; part++) {
+        part_list[part] = part;
+    }
+
+    bc7_enc_mode01237(state, 0u, part_list, 16u);
+
+    if (!bc7_settings.skip_mode2) {
+        bc7_enc_mode01237(state, 2u, part_list, 64u);
+    }
+}
+
+fn compress_block_bc7_core(state: ptr<function, BC7EncodingState>) {
+    if (bc7_settings.mode_selection[0] > 0u) {
+        bc7_enc_mode02(state);
+    }
+    if (bc7_settings.mode_selection[1] > 0u) {
+        // TODO
+        //bc7_enc_mode13(state);
+        //bc7_enc_mode7(state);
+    }
+    if (bc7_settings.mode_selection[2] > 0u) {
+        // TODO
+        //bc7_enc_mode45(state);
+    }
+    if (bc7_settings.mode_selection[3] > 0u) {
+        // TODO
+        //bc7_enc_mode6(state);
+    }
+}
+
+fn compute_opaque_err() -> f32 {
+    if (bc7_settings.channels == 3u) {
+        return 0.0;
+    }
+
+    var err = 0.0;
+    for (var k = 0u; k < 16u; k++) {
+        err += sq(block[48u + k] - 255.0);
+    }
+    return err;
+}
+
 @compute
 @workgroup_size(8, 8)
 fn compress_bc7(@builtin(global_invocation_id) global_id: vec3<u32>) {
@@ -633,7 +1041,6 @@ fn compress_bc7(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let yy = global_id.y;
 
     let texture_dimensions: vec2<u32> = textureDimensions(source_texture);
-
     let block_width = (texture_dimensions.x + 3u) / 4u;
     let block_height = (texture_dimensions.y + 3u) / 4u;
 
@@ -641,7 +1048,13 @@ fn compress_bc7(@builtin(global_invocation_id) global_id: vec3<u32>) {
         return;
     }
 
-    var compressed_data: array<u32, 4>;
+    load_block_interleaved_rgba(xx, yy);
 
-    // TODO: NHA implement BC7
+    var state: BC7EncodingState;
+	state.best_err = 3.40282347e38;
+    state.opaque_err = compute_opaque_err();
+
+    compress_block_bc7_core(&state);
+
+    store_data_4(block_width, xx, yy, state.best_data);
 }
