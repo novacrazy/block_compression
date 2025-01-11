@@ -1,21 +1,17 @@
 use crate::settings::{BC6HSettings, Settings};
 use crate::BC7Settings;
-use bytemuck::cast_slice;
+use bytemuck::{cast_slice, Pod, Zeroable};
 use ddsfile::DxgiFormat;
 use std::collections::HashMap;
 use std::num::NonZeroU64;
 use std::sync::Arc;
-use wgpu::util::{BufferInitDescriptor, DeviceExt};
 
 use wgpu::{
     self, include_wgsl, BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout,
     BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingResource, BindingType, Buffer,
-    BufferBinding, BufferBindingType, BufferDescriptor, BufferUsages, CommandEncoderDescriptor,
-    ComputePass, ComputePipeline, ComputePipelineDescriptor, Device, Extent3d, ImageCopyBuffer,
-    ImageCopyTexture, ImageDataLayout, Maintain, MapMode, Origin3d, PipelineCompilationOptions,
-    PipelineLayoutDescriptor, Queue, ShaderModule, ShaderStages, Texture, TextureAspect,
-    TextureDescriptor, TextureDimension, TextureFormat, TextureSampleType, TextureUsages,
-    TextureView, TextureViewDimension,
+    BufferBindingType, BufferDescriptor, BufferUsages, ComputePass, ComputePipeline,
+    ComputePipelineDescriptor, Device, PipelineCompilationOptions, PipelineLayoutDescriptor, Queue,
+    ShaderModule, ShaderStages, TextureSampleType, TextureView, TextureViewDimension,
 };
 
 #[derive(Copy, Clone, Hash, Eq, PartialEq, Ord, PartialOrd, Debug)]
@@ -54,7 +50,7 @@ impl CompressionVariant {
         }
     }
 
-    fn block_size(self) -> u32 {
+    fn block_byte_size(self) -> u32 {
         match self {
             CompressionVariant::BC1 | CompressionVariant::BC4 => 8,
             CompressionVariant::BC2
@@ -65,24 +61,12 @@ impl CompressionVariant {
         }
     }
 
-    fn output_size(self, width: u32, height: u32) -> usize {
+    pub fn blocks_byte_size(self, width: u32, height: u32) -> usize {
         let block_width = (width as usize + 3) / 4;
         let block_height = (height as usize + 3) / 4;
         let block_count = block_width * block_height;
-        let block_size = self.block_size() as usize;
+        let block_size = self.block_byte_size() as usize;
         block_count * block_size
-    }
-
-    pub(crate) fn texture_format(self) -> TextureFormat {
-        match self {
-            CompressionVariant::BC1 => TextureFormat::Bc1RgbaUnormSrgb,
-            CompressionVariant::BC2 => TextureFormat::Bc2RgbaUnormSrgb,
-            CompressionVariant::BC3 => TextureFormat::Bc3RgbaUnormSrgb,
-            CompressionVariant::BC4 => TextureFormat::Bc4RUnorm,
-            CompressionVariant::BC5 => TextureFormat::Bc5RgUnorm,
-            CompressionVariant::BC6H => TextureFormat::Bc6hRgbUfloat,
-            CompressionVariant::BC7 => TextureFormat::Bc7RgbaUnormSrgb,
-        }
     }
 
     // TODO: NHA move behind feature flag.
@@ -99,55 +83,87 @@ impl CompressionVariant {
     }
 }
 
-#[derive(Copy, Clone, Eq, PartialEq)]
-enum TaskStatus {
-    Created,
-    Dispatched,
+#[derive(Copy, Clone, Zeroable, Pod)]
+#[repr(C)]
+struct Uniforms {
+    width: u32,
+    height: u32,
+    block: u32,
 }
 
 struct Task {
-    key: String,
-    dispatched: TaskStatus,
     variant: CompressionVariant,
     width: u32,
     height: u32,
-    settings_offset: Option<usize>,
-    block_buffer: Buffer,
+    uniform_offset: u32,
+    setting_offset: u32,
+    buffer_offset: u32,
     bind_group: BindGroup,
+    settings: Option<Settings>,
+}
+
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+enum Status {
+    Ready,
+    Uploaded,
 }
 
 pub struct BlockCompressor {
     scratch_buffer: Vec<u8>,
     task: Vec<Task>,
-    bc6h_settings: Vec<BC6HSettings>,
-    bc7_settings: Vec<BC7Settings>,
+    uniforms_buffer: Buffer,
     bc6h_settings_buffer: Buffer,
     bc7_settings_buffer: Buffer,
     bind_group_layouts: HashMap<CompressionVariant, BindGroupLayout>,
     pipelines: HashMap<CompressionVariant, ComputePipeline>,
     device: Arc<Device>,
     queue: Arc<Queue>,
+    uniforms_aligned_size: usize,
     bc6h_aligned_size: usize,
     bc7_aligned_size: usize,
+    status: Status,
 }
 
 impl BlockCompressor {
     pub fn new(device: Arc<Device>, queue: Arc<Queue>) -> Self {
+        let limits = device.limits();
+
+        let alignment = limits.min_uniform_buffer_offset_alignment as usize;
+        let size = size_of::<Uniforms>();
+        let uniforms_aligned_size = size.div_ceil(alignment) * alignment;
+
+        let alignment = limits.min_storage_buffer_offset_alignment as usize;
+        let size = size_of::<BC6HSettings>();
+        let bc6h_aligned_size = size.div_ceil(alignment) * alignment;
+
+        let alignment = limits.min_storage_buffer_offset_alignment as usize;
+        let size = size_of::<BC7Settings>();
+        let bc7_aligned_size = size.div_ceil(alignment) * alignment;
+
         let shader_module_bc1_to_5 =
             device.create_shader_module(include_wgsl!("shader/BC1_to_5.wgsl"));
         let shader_module_bc6h = device.create_shader_module(include_wgsl!("shader/BC6H.wgsl"));
         let shader_module_bc7 = device.create_shader_module(include_wgsl!("shader/BC7.wgsl"));
 
-        let bc7_settings_buffer = device.create_buffer_init(&BufferInitDescriptor {
-            label: Some("bc7 settings"),
-            contents: cast_slice(&[BC7Settings::alpha_very_fast()]),
-            usage: BufferUsages::COPY_DST | BufferUsages::STORAGE,
+        let uniforms_buffer = device.create_buffer(&BufferDescriptor {
+            label: Some("uniforms"),
+            size: (uniforms_aligned_size * 16) as _,
+            usage: BufferUsages::COPY_DST | BufferUsages::UNIFORM,
+            mapped_at_creation: false,
         });
 
-        let bc6h_settings_buffer = device.create_buffer_init(&BufferInitDescriptor {
+        let bc6h_settings_buffer = device.create_buffer(&BufferDescriptor {
             label: Some("bc6h settings"),
-            contents: cast_slice(&[BC6HSettings::very_fast()]),
+            size: (bc6h_aligned_size * 16) as _,
             usage: BufferUsages::COPY_DST | BufferUsages::STORAGE,
+            mapped_at_creation: false,
+        });
+
+        let bc7_settings_buffer = device.create_buffer(&BufferDescriptor {
+            label: Some("bc7 settings"),
+            size: (bc7_aligned_size * 16) as _,
+            usage: BufferUsages::COPY_DST | BufferUsages::STORAGE,
+            mapped_at_creation: false,
         });
 
         let mut bind_group_layouts = HashMap::new();
@@ -203,29 +219,20 @@ impl BlockCompressor {
             CompressionVariant::BC7,
         );
 
-        let limits = device.limits();
-
-        let alignment = limits.min_storage_buffer_offset_alignment as usize;
-        let size = size_of::<BC6HSettings>();
-        let bc6h_aligned_size = size.div_ceil(alignment) * alignment;
-
-        let alignment = limits.min_storage_buffer_offset_alignment as usize;
-        let size = size_of::<BC7Settings>();
-        let bc7_aligned_size = size.div_ceil(alignment) * alignment;
-
         Self {
             scratch_buffer: Vec::default(),
             task: Vec::default(),
-            bc6h_settings: Vec::default(),
-            bc7_settings: Vec::default(),
+            uniforms_buffer,
             bc6h_settings_buffer,
             bc7_settings_buffer,
             bind_group_layouts,
             pipelines,
             device,
             queue,
+            uniforms_aligned_size,
             bc6h_aligned_size,
             bc7_aligned_size,
+            status: Status::Ready,
         }
     }
 
@@ -257,12 +264,22 @@ impl BlockCompressor {
                 },
                 count: None,
             },
+            BindGroupLayoutEntry {
+                binding: 2,
+                visibility: ShaderStages::COMPUTE,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Uniform,
+                    has_dynamic_offset: true,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
         ];
 
         match variant {
             CompressionVariant::BC6H => {
                 layout_entries.push(BindGroupLayoutEntry {
-                    binding: 2,
+                    binding: 3,
                     visibility: ShaderStages::COMPUTE,
                     ty: BindingType::Buffer {
                         ty: BufferBindingType::Storage { read_only: true },
@@ -274,7 +291,7 @@ impl BlockCompressor {
             }
             CompressionVariant::BC7 => {
                 layout_entries.push(BindGroupLayoutEntry {
-                    binding: 2,
+                    binding: 3,
                     visibility: ShaderStages::COMPUTE,
                     ty: BindingType::Buffer {
                         ty: BufferBindingType::Storage { read_only: true },
@@ -318,58 +335,61 @@ impl BlockCompressor {
     /// BC6H adn BC7 can be configured with the [`BC6HSettings`] and [`BC7Settings`] structs.
     /// In case settings are not provided for them, their respective `slow` settings will be
     /// used as a default.
+    #[allow(clippy::too_many_arguments)]
     pub fn add_compression_task(
         &mut self,
-        key: &str,
+        variant: CompressionVariant,
         texture_view: &TextureView,
         width: u32,
         height: u32,
-        variant: CompressionVariant,
+        buffer: &Buffer,
+        offset: Option<u32>,
         settings: impl Into<Option<Settings>>,
     ) {
-        let settings = settings.into();
-        let settings_offset = match settings {
-            Some(Settings::BC6H(settings)) => {
-                let settings_offset = Some(self.bc6h_settings.len() * self.bc6h_aligned_size);
-                self.bc6h_settings.push(settings);
-                settings_offset
-            }
-            Some(Settings::BC7(settings)) => {
-                let settings_offset = Some(self.bc7_settings.len() * self.bc7_aligned_size);
-                self.bc7_settings.push(settings);
-                settings_offset
-            }
-            _ if variant == CompressionVariant::BC6H => {
-                let settings_offset = Some(self.bc6h_settings.len() * self.bc6h_aligned_size);
-                self.bc6h_settings.push(BC6HSettings::slow());
-                settings_offset
-            }
-            _ if variant == CompressionVariant::BC7 => {
-                let settings_offset = Some(self.bc7_settings.len() * self.bc7_aligned_size);
-                self.bc7_settings.push(BC7Settings::alpha_slow());
-                settings_offset
-            }
-            _ => None,
-        };
+        assert_ne!(
+            self.status,
+            Status::Uploaded,
+            "added compression task after upload and before dispatch"
+        );
 
-        self.add_task(key, texture_view, width, height, variant, settings_offset);
+        let mut settings = settings.into();
+
+        if variant == CompressionVariant::BC6H && settings.is_none() {
+            settings = Some(Settings::BC6H(BC6HSettings::slow()));
+        }
+
+        if variant == CompressionVariant::BC7 && settings.is_none() {
+            settings = Some(Settings::BC7(BC7Settings::alpha_slow()));
+        }
+
+        self.add_task(
+            variant,
+            texture_view,
+            width,
+            height,
+            buffer,
+            offset,
+            settings,
+        );
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn add_task(
         &mut self,
-        key: &str,
+        variant: CompressionVariant,
         texture_view: &TextureView,
         width: u32,
         height: u32,
-        variant: CompressionVariant,
-        settings_offset: Option<usize>,
+        buffer: &Buffer,
+        offset: Option<u32>,
+        settings: Option<Settings>,
     ) {
         assert_eq!(height % 4, 0);
         assert_eq!(width % 4, 0);
 
         let block_buffer = self.device.create_buffer(&BufferDescriptor {
             label: Some("block buffer"),
-            size: variant.output_size(width, height) as u64,
+            size: variant.blocks_byte_size(width, height) as u64,
             usage: BufferUsages::COPY_DST | BufferUsages::COPY_SRC | BufferUsages::STORAGE,
             mapped_at_creation: false,
         });
@@ -394,17 +414,21 @@ impl BlockCompressor {
                     },
                     BindGroupEntry {
                         binding: 1,
-                        resource: block_buffer.as_entire_binding(),
+                        resource: buffer.as_entire_binding(),
+                    },
+                    BindGroupEntry {
+                        binding: 2,
+                        resource: self.uniforms_buffer.as_entire_binding(),
                     },
                 ],
             }),
             CompressionVariant::BC6H => self.device.create_bind_group(&BindGroupDescriptor {
                 label: Some("bind group"),
-                layout: &bind_group_layout,
+                layout: bind_group_layout,
                 entries: &[
                     BindGroupEntry {
                         binding: 0,
-                        resource: BindingResource::TextureView(&texture_view),
+                        resource: BindingResource::TextureView(texture_view),
                     },
                     BindGroupEntry {
                         binding: 1,
@@ -412,21 +436,21 @@ impl BlockCompressor {
                     },
                     BindGroupEntry {
                         binding: 2,
-                        resource: BindingResource::Buffer(BufferBinding {
-                            buffer: &self.bc6h_settings_buffer,
-                            offset: 0,
-                            size: None,
-                        }),
+                        resource: self.uniforms_buffer.as_entire_binding(),
+                    },
+                    BindGroupEntry {
+                        binding: 3,
+                        resource: self.bc6h_settings_buffer.as_entire_binding(),
                     },
                 ],
             }),
             CompressionVariant::BC7 => self.device.create_bind_group(&BindGroupDescriptor {
                 label: Some("bind group"),
-                layout: &bind_group_layout,
+                layout: bind_group_layout,
                 entries: &[
                     BindGroupEntry {
                         binding: 0,
-                        resource: BindingResource::TextureView(&texture_view),
+                        resource: BindingResource::TextureView(texture_view),
                     },
                     BindGroupEntry {
                         binding: 1,
@@ -434,48 +458,57 @@ impl BlockCompressor {
                     },
                     BindGroupEntry {
                         binding: 2,
-                        resource: BindingResource::Buffer(BufferBinding {
-                            buffer: &self.bc7_settings_buffer,
-                            offset: 0,
-                            size: None,
-                        }),
+                        resource: self.uniforms_buffer.as_entire_binding(),
+                    },
+                    BindGroupEntry {
+                        binding: 3,
+                        resource: self.bc7_settings_buffer.as_entire_binding(),
                     },
                 ],
             }),
         };
 
         self.task.push(Task {
-            key: key.to_string(),
-            dispatched: TaskStatus::Created,
             variant,
             width,
             height,
-            settings_offset,
-            block_buffer,
+            uniform_offset: 0,
+            setting_offset: 0,
+            buffer_offset: offset.unwrap_or(0),
             bind_group,
+            settings,
         });
     }
 
     pub fn upload(&mut self) {
-        if !self.bc6h_settings.is_empty() {
-            let total_bc6h_size = self.bc6h_aligned_size * self.bc6h_settings.len();
-            if total_bc6h_size > self.bc6h_settings_buffer.size() as usize {
-                self.bc6h_settings_buffer = self.device.create_buffer(&BufferDescriptor {
-                    label: Some("bc6h settings buffer"),
-                    size: total_bc6h_size as u64,
-                    usage: BufferUsages::COPY_DST | BufferUsages::STORAGE,
-                    mapped_at_creation: false,
-                });
-            }
+        if self.status == Status::Uploaded {
+            return;
+        }
+        self.status = Status::Uploaded;
 
-            self.scratch_buffer.clear();
-            for (i, settings) in self.bc6h_settings.iter().enumerate() {
-                let offset = i * self.bc6h_aligned_size;
-                self.scratch_buffer
-                    .resize(offset + self.bc6h_aligned_size, 0);
-                self.scratch_buffer[offset..offset + size_of::<BC6HSettings>()]
-                    .copy_from_slice(cast_slice(&[*settings]));
+        self.update_buffer_sizes();
+
+        self.scratch_buffer.clear();
+        for (index, task) in self
+            .task
+            .iter_mut()
+            .filter(|task| task.variant == CompressionVariant::BC6H)
+            .enumerate()
+        {
+            let offset = index * self.bc6h_aligned_size;
+            task.setting_offset = offset as u32;
+
+            match &task.settings {
+                Some(Settings::BC6H(settings)) => {
+                    self.scratch_buffer
+                        .resize(offset + self.bc6h_aligned_size, 0);
+                    self.scratch_buffer[offset..offset + size_of::<BC6HSettings>()]
+                        .copy_from_slice(cast_slice(&[*settings]));
+                }
+                _ => panic!("internal error: No BC6H setting found"),
             }
+        }
+        if !self.scratch_buffer.is_empty() {
             if let Some(mut data) = self.queue.write_buffer_with(
                 &self.bc6h_settings_buffer,
                 0,
@@ -485,27 +518,29 @@ impl BlockCompressor {
             }
         }
 
-        if !self.bc7_settings.is_empty() {
-            let total_bc7_size = self.bc7_aligned_size * self.bc7_settings.len();
-            if total_bc7_size > self.bc7_settings_buffer.size() as usize {
-                self.bc7_settings_buffer = self.device.create_buffer(&BufferDescriptor {
-                    label: Some("bc7 settings buffer"),
-                    size: total_bc7_size as u64,
-                    usage: BufferUsages::COPY_DST | BufferUsages::STORAGE,
-                    mapped_at_creation: false,
-                });
-            }
+        self.scratch_buffer.clear();
+        for (index, task) in self
+            .task
+            .iter_mut()
+            .filter(|task| task.variant == CompressionVariant::BC7)
+            .enumerate()
+        {
+            let offset = index * self.bc7_aligned_size;
+            task.setting_offset = offset as u32;
 
-            self.scratch_buffer.clear();
-            for (i, settings) in self.bc7_settings.iter().enumerate() {
-                let offset = i * self.bc7_aligned_size;
-                self.scratch_buffer
-                    .resize(offset + self.bc7_aligned_size, 0);
-                self.scratch_buffer[offset..offset + size_of::<BC7Settings>()]
-                    .copy_from_slice(cast_slice(&[*settings]));
+            match &task.settings {
+                Some(Settings::BC7(settings)) => {
+                    self.scratch_buffer
+                        .resize(offset + self.bc7_aligned_size, 0);
+                    self.scratch_buffer[offset..offset + size_of::<BC7Settings>()]
+                        .copy_from_slice(cast_slice(&[*settings]));
+                }
+                _ => panic!("internal error: No BC7 setting found"),
             }
+        }
+        if !self.scratch_buffer.is_empty() {
             if let Some(mut data) = self.queue.write_buffer_with(
-                &self.bc7_settings_buffer,
+                &self.bc6h_settings_buffer,
                 0,
                 NonZeroU64::new(self.scratch_buffer.len() as u64).unwrap(),
             ) {
@@ -513,27 +548,86 @@ impl BlockCompressor {
             }
         }
 
-        self.bc6h_settings.clear();
-        self.bc7_settings.clear();
+        self.scratch_buffer.clear();
+        for (index, task) in self.task.iter_mut().enumerate() {
+            let offset = index * self.uniforms_aligned_size;
+            task.uniform_offset = offset as u32;
+
+            let uniforms = Uniforms {
+                width: task.width,
+                height: task.height,
+                block: task.buffer_offset,
+            };
+
+            self.scratch_buffer
+                .resize(offset + self.uniforms_aligned_size, 0);
+            self.scratch_buffer[offset..offset + size_of::<Uniforms>()]
+                .copy_from_slice(cast_slice(&[uniforms]));
+        }
+        if !self.scratch_buffer.is_empty() {
+            if let Some(mut data) = self.queue.write_buffer_with(
+                &self.uniforms_buffer,
+                0,
+                NonZeroU64::new(self.scratch_buffer.len() as u64).unwrap(),
+            ) {
+                data.copy_from_slice(&self.scratch_buffer);
+            }
+        }
+    }
+
+    fn update_buffer_sizes(&mut self) {
+        let total_uniforms_size = self.uniforms_aligned_size * self.task.len();
+        if total_uniforms_size > self.uniforms_buffer.size() as usize {
+            self.uniforms_buffer = self.device.create_buffer(&BufferDescriptor {
+                label: Some("uniforms buffer"),
+                size: total_uniforms_size as u64,
+                usage: BufferUsages::COPY_DST | BufferUsages::UNIFORM,
+                mapped_at_creation: false,
+            });
+        }
+
+        let bc6_setting_count = self
+            .task
+            .iter()
+            .filter(|task| task.variant == CompressionVariant::BC6H)
+            .count();
+
+        let total_bc6h_size = self.bc6h_aligned_size * bc6_setting_count;
+        if total_bc6h_size > self.bc6h_settings_buffer.size() as usize {
+            self.bc6h_settings_buffer = self.device.create_buffer(&BufferDescriptor {
+                label: Some("bc6h settings buffer"),
+                size: total_bc6h_size as u64,
+                usage: BufferUsages::COPY_DST | BufferUsages::STORAGE,
+                mapped_at_creation: false,
+            });
+        }
+
+        let bc7_setting_count = self
+            .task
+            .iter()
+            .filter(|task| task.variant == CompressionVariant::BC7)
+            .count();
+
+        let total_bc7_size = self.bc7_aligned_size * bc7_setting_count;
+        if total_bc7_size > self.bc7_settings_buffer.size() as usize {
+            self.bc7_settings_buffer = self.device.create_buffer(&BufferDescriptor {
+                label: Some("bc7 settings buffer"),
+                size: total_bc7_size as u64,
+                usage: BufferUsages::COPY_DST | BufferUsages::STORAGE,
+                mapped_at_creation: false,
+            });
+        }
     }
 
     pub fn compress(&mut self, pass: &mut ComputePass) {
-        assert!(
-            self.bc6h_settings.is_empty(),
+        assert_eq!(
+            self.status,
+            Status::Uploaded,
             "dispatch called before upload"
         );
-        assert!(
-            self.bc7_settings.is_empty(),
-            "dispatch called before upload"
-        );
+        self.status = Status::Ready;
 
-        for task in self
-            .task
-            .iter_mut()
-            .filter(|task| task.dispatched == TaskStatus::Created)
-        {
-            task.dispatched = TaskStatus::Dispatched;
-
+        for task in self.task.drain(..) {
             let pipeline = self
                 .pipelines
                 .get(&task.variant)
@@ -541,12 +635,16 @@ impl BlockCompressor {
 
             pass.set_pipeline(pipeline);
 
-            match task.settings_offset {
-                None => {
-                    pass.set_bind_group(0, &task.bind_group, &[]);
+            match task.variant {
+                CompressionVariant::BC6H | CompressionVariant::BC7 => {
+                    pass.set_bind_group(
+                        0,
+                        &task.bind_group,
+                        &[task.uniform_offset, task.setting_offset],
+                    );
                 }
-                Some(offset) => {
-                    pass.set_bind_group(0, &task.bind_group, &[0, 0, offset as _]);
+                _ => {
+                    pass.set_bind_group(0, &task.bind_group, &[task.uniform_offset]);
                 }
             }
 
@@ -558,113 +656,5 @@ impl BlockCompressor {
 
             pass.dispatch_workgroups(workgroup_width, workgroup_height, 1);
         }
-    }
-
-    pub fn create_texture(&mut self, name: &str) -> Option<Texture> {
-        let task_index = self.task.iter().position(|task| task.key == name)?;
-        let task = self.task.swap_remove(task_index);
-
-        let block_width = (task.width + 3) / 4;
-        let block_height = (task.height + 3) / 4;
-
-        let texture = self.device.create_texture(&TextureDescriptor {
-            label: Some("compressed texture"),
-            size: Extent3d {
-                width: task.width,
-                height: task.height,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: TextureDimension::D2,
-            format: task.variant.texture_format(),
-            usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
-            view_formats: &[],
-        });
-
-        let mut encoder = self
-            .device
-            .create_command_encoder(&CommandEncoderDescriptor {
-                label: Some("copy encoder"),
-            });
-
-        let bytes_per_row = block_width * task.variant.block_size();
-        assert_eq!(
-            bytes_per_row % 256,
-            0,
-            "bytes per row is not a multiple of 256"
-        );
-
-        encoder.copy_buffer_to_texture(
-            ImageCopyBuffer {
-                buffer: &task.block_buffer,
-                layout: ImageDataLayout {
-                    offset: 0,
-                    bytes_per_row: Some(bytes_per_row),
-                    rows_per_image: Some(block_height),
-                },
-            },
-            ImageCopyTexture {
-                texture: &texture,
-                mip_level: 0,
-                origin: Origin3d::ZERO,
-                aspect: TextureAspect::All,
-            },
-            Extent3d {
-                width: task.width,
-                height: task.height,
-                depth_or_array_layers: 1,
-            },
-        );
-
-        self.queue.submit([encoder.finish()]);
-
-        Some(texture)
-    }
-
-    pub fn download_block_data(&mut self, key: &str) -> Option<Vec<u8>> {
-        let task_index = self.task.iter().position(|task| task.key == key)?;
-        let task = self.task.swap_remove(task_index);
-
-        let size = task.block_buffer.size();
-
-        let staging_buffer = self.device.create_buffer(&BufferDescriptor {
-            label: Some("staging buffer"),
-            size,
-            usage: BufferUsages::COPY_DST | BufferUsages::MAP_READ,
-            mapped_at_creation: false,
-        });
-
-        let mut copy_encoder = self
-            .device
-            .create_command_encoder(&CommandEncoderDescriptor {
-                label: Some("copy encoder"),
-            });
-
-        copy_encoder.copy_buffer_to_buffer(&task.block_buffer, 0, &staging_buffer, 0, size);
-
-        self.queue.submit([copy_encoder.finish()]);
-
-        let result;
-
-        {
-            let buffer_slice = staging_buffer.slice(..);
-
-            let (tx, rx) = std::sync::mpsc::channel();
-            buffer_slice.map_async(MapMode::Read, move |v| tx.send(v).unwrap());
-
-            self.device.poll(Maintain::Wait);
-
-            match rx.recv() {
-                Ok(Ok(())) => {
-                    result = buffer_slice.get_mapped_range().to_vec();
-                }
-                _ => panic!("couldn't read from buffer"),
-            }
-        }
-
-        staging_buffer.unmap();
-
-        Some(result)
     }
 }

@@ -15,8 +15,13 @@
 // TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+struct Offset {
+    block: u32
+}
+
 @group(0) @binding(0) var source_texture: texture_2d<f32>;
 @group(0) @binding(1) var<storage, read_write> block_buffer: array<u32>;
+@group(0) @binding(2) var<uniform> offsets_buffer: Offset;
 
 var<private> block: array<f32, 64>;
 

@@ -8,11 +8,11 @@ use std::sync::Arc;
 use std::time::Instant;
 use wgpu::util::{DeviceExt, TextureDataOrder};
 use wgpu::{
-    Backends, BufferDescriptor, BufferUsages, CommandEncoderDescriptor, ComputePassDescriptor,
-    ComputePassTimestampWrites, Device, DeviceDescriptor, Dx12Compiler, Extent3d, Features,
-    Gles3MinorVersion, Instance, InstanceDescriptor, InstanceFlags, Limits, MemoryHints, QueryType,
-    Queue, Texture, TextureDescriptor, TextureDimension, TextureFormat, TextureUsages,
-    TextureViewDescriptor,
+    Backends, Buffer, BufferDescriptor, BufferUsages, CommandEncoderDescriptor,
+    ComputePassDescriptor, ComputePassTimestampWrites, Device, DeviceDescriptor, Dx12Compiler,
+    Extent3d, Features, Gles3MinorVersion, Instance, InstanceDescriptor, InstanceFlags, Limits,
+    Maintain, MapMode, MemoryHints, QueryType, Queue, Texture, TextureDescriptor, TextureDimension,
+    TextureFormat, TextureUsages, TextureViewDescriptor,
 };
 
 mod block_compressor;
@@ -28,10 +28,11 @@ pub use settings::{BC6HSettings, BC7Settings};
 // TODO: Decide on the error model
 
 fn main() {
-    let (device, queue) = create_resources();
-
     let file_name = "input4096alpha.png".to_string();
     let variant = CompressionVariant::BC3;
+
+    let (device, queue) = create_resources();
+    let mut compressor: BlockCompressor = BlockCompressor::new(device.clone(), queue.clone());
 
     let start = Instant::now();
 
@@ -49,88 +50,55 @@ fn main() {
         duration.as_secs_f64() * 1000.0
     );
 
-    let mut compressor: BlockCompressor = BlockCompressor::new(device.clone(), queue.clone());
+    let blocks_buffer = device.create_buffer(&BufferDescriptor {
+        label: Some("blocks buffer"),
+        size: variant.blocks_byte_size(width, height) as _,
+        usage: BufferUsages::COPY_SRC | BufferUsages::STORAGE,
+        mapped_at_creation: false,
+    });
 
     match variant {
-        CompressionVariant::BC1 => {
-            compressor.add_compression_task(
-                &file_name,
-                &texture_view,
-                width,
-                height,
-                CompressionVariant::BC1,
-                None,
-            );
-        }
-        CompressionVariant::BC2 => {
-            compressor.add_compression_task(
-                &file_name,
-                &texture_view,
-                width,
-                height,
-                CompressionVariant::BC2,
-                None,
-            );
-        }
-        CompressionVariant::BC3 => {
-            compressor.add_compression_task(
-                &file_name,
-                &texture_view,
-                width,
-                height,
-                CompressionVariant::BC3,
-                None,
-            );
-        }
-        CompressionVariant::BC4 => {
-            compressor.add_compression_task(
-                &file_name,
-                &texture_view,
-                width,
-                height,
-                CompressionVariant::BC4,
-                None,
-            );
-        }
-        CompressionVariant::BC5 => {
-            compressor.add_compression_task(
-                &file_name,
-                &texture_view,
-                width,
-                height,
-                CompressionVariant::BC5,
-                None,
-            );
-        }
         CompressionVariant::BC6H => {
             compressor.add_compression_task(
-                &file_name,
+                variant,
                 &texture_view,
                 width,
                 height,
-                CompressionVariant::BC6H,
+                &blocks_buffer,
+                None,
                 BC6HSettings::slow(),
             );
         }
         CompressionVariant::BC7 => {
             compressor.add_compression_task(
-                &file_name,
+                variant,
                 &texture_view,
                 width,
                 height,
-                CompressionVariant::BC7,
+                &blocks_buffer,
+                None,
                 BC7Settings::alpha_slow(),
+            );
+        }
+        _ => {
+            compressor.add_compression_task(
+                variant,
+                &texture_view,
+                width,
+                height,
+                &blocks_buffer,
+                None,
+                None,
             );
         }
     }
 
+    compressor.upload();
     compress(&mut compressor, &device, &queue);
 
     let start = Instant::now();
 
-    let block_data = compressor
-        .download_block_data(&file_name)
-        .expect("block data was not found");
+    let block_data = download_blocks_data(&device, &queue, blocks_buffer);
 
     let duration = start.elapsed();
     println!(
@@ -284,6 +252,47 @@ fn compress(compressor: &mut BlockCompressor, device: &Device, queue: &Queue) {
 
         timestamp_readback_buffer.unmap();
     }
+}
+
+fn download_blocks_data(device: &Device, queue: &Queue, block_buffer: Buffer) -> Vec<u8> {
+    let size = block_buffer.size();
+
+    let staging_buffer = device.create_buffer(&BufferDescriptor {
+        label: Some("staging buffer"),
+        size,
+        usage: BufferUsages::COPY_DST | BufferUsages::MAP_READ,
+        mapped_at_creation: false,
+    });
+
+    let mut copy_encoder = device.create_command_encoder(&CommandEncoderDescriptor {
+        label: Some("copy encoder"),
+    });
+
+    copy_encoder.copy_buffer_to_buffer(&block_buffer, 0, &staging_buffer, 0, size);
+
+    queue.submit([copy_encoder.finish()]);
+
+    let result;
+
+    {
+        let buffer_slice = staging_buffer.slice(..);
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        buffer_slice.map_async(MapMode::Read, move |v| tx.send(v).unwrap());
+
+        device.poll(Maintain::Wait);
+
+        match rx.recv() {
+            Ok(Ok(())) => {
+                result = buffer_slice.get_mapped_range().to_vec();
+            }
+            _ => panic!("couldn't read from buffer"),
+        }
+    }
+
+    staging_buffer.unmap();
+
+    result
 }
 
 fn write_dds_file(
