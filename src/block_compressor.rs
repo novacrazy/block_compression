@@ -1,5 +1,5 @@
-use crate::settings::Bc6HSettings;
-use crate::Bc7Settings;
+use crate::settings::{BC6HSettings, Settings};
+use crate::BC7Settings;
 use bytemuck::cast_slice;
 use ddsfile::DxgiFormat;
 use std::collections::HashMap;
@@ -119,8 +119,8 @@ struct Task {
 pub struct BlockCompressor {
     scratch_buffer: Vec<u8>,
     task: Vec<Task>,
-    bc6h_settings: Vec<Bc6HSettings>,
-    bc7_settings: Vec<Bc7Settings>,
+    bc6h_settings: Vec<BC6HSettings>,
+    bc7_settings: Vec<BC7Settings>,
     bc6h_settings_buffer: Buffer,
     bc7_settings_buffer: Buffer,
     bind_group_layouts: HashMap<CompressionVariant, BindGroupLayout>,
@@ -140,13 +140,13 @@ impl BlockCompressor {
 
         let bc7_settings_buffer = device.create_buffer_init(&BufferInitDescriptor {
             label: Some("bc7 settings"),
-            contents: cast_slice(&[Bc7Settings::alpha_very_fast()]),
+            contents: cast_slice(&[BC7Settings::alpha_very_fast()]),
             usage: BufferUsages::COPY_DST | BufferUsages::STORAGE,
         });
 
         let bc6h_settings_buffer = device.create_buffer_init(&BufferInitDescriptor {
             label: Some("bc6h settings"),
-            contents: cast_slice(&[Bc6HSettings::very_fast()]),
+            contents: cast_slice(&[BC6HSettings::very_fast()]),
             usage: BufferUsages::COPY_DST | BufferUsages::STORAGE,
         });
 
@@ -206,11 +206,11 @@ impl BlockCompressor {
         let limits = device.limits();
 
         let alignment = limits.min_storage_buffer_offset_alignment as usize;
-        let size = size_of::<Bc6HSettings>();
+        let size = size_of::<BC6HSettings>();
         let bc6h_aligned_size = size.div_ceil(alignment) * alignment;
 
         let alignment = limits.min_storage_buffer_offset_alignment as usize;
-        let size = size_of::<Bc7Settings>();
+        let size = size_of::<BC7Settings>();
         let bc7_aligned_size = size.div_ceil(alignment) * alignment;
 
         Self {
@@ -267,7 +267,7 @@ impl BlockCompressor {
                     ty: BindingType::Buffer {
                         ty: BufferBindingType::Storage { read_only: true },
                         has_dynamic_offset: true,
-                        min_binding_size: NonZeroU64::new(size_of::<Bc6HSettings>() as _),
+                        min_binding_size: NonZeroU64::new(size_of::<BC6HSettings>() as _),
                     },
                     count: None,
                 });
@@ -279,7 +279,7 @@ impl BlockCompressor {
                     ty: BindingType::Buffer {
                         ty: BufferBindingType::Storage { read_only: true },
                         has_dynamic_offset: true,
-                        min_binding_size: NonZeroU64::new(size_of::<Bc7Settings>() as _),
+                        min_binding_size: NonZeroU64::new(size_of::<BC7Settings>() as _),
                     },
                     count: None,
                 });
@@ -313,99 +313,37 @@ impl BlockCompressor {
         pipelines.insert(variant, pipeline);
     }
 
-    pub fn add_bc1_task(&mut self, key: &str, texture_view: &TextureView, width: u32, height: u32) {
-        self.add_task(
-            key,
-            texture_view,
-            width,
-            height,
-            CompressionVariant::BC1,
-            None,
-        );
-    }
-
-    pub fn add_bc2_task(&mut self, key: &str, texture_view: &TextureView, width: u32, height: u32) {
-        self.add_task(
-            key,
-            texture_view,
-            width,
-            height,
-            CompressionVariant::BC2,
-            None,
-        );
-    }
-
-    pub fn add_bc3_task(&mut self, key: &str, texture_view: &TextureView, width: u32, height: u32) {
-        self.add_task(
-            key,
-            texture_view,
-            width,
-            height,
-            CompressionVariant::BC3,
-            None,
-        );
-    }
-
-    pub fn add_bc4_task(&mut self, key: &str, texture_view: &TextureView, width: u32, height: u32) {
-        self.add_task(
-            key,
-            texture_view,
-            width,
-            height,
-            CompressionVariant::BC4,
-            None,
-        );
-    }
-
-    pub fn add_bc5_task(&mut self, key: &str, texture_view: &TextureView, width: u32, height: u32) {
-        self.add_task(
-            key,
-            texture_view,
-            width,
-            height,
-            CompressionVariant::BC5,
-            None,
-        );
-    }
-
-    pub fn add_bc6h_task(
+    pub fn add_compression_task(
         &mut self,
         key: &str,
         texture_view: &TextureView,
         width: u32,
         height: u32,
-        settings: Bc6HSettings,
+        variant: CompressionVariant,
+        settings: impl Into<Option<Settings>>,
     ) {
-        let settings_offset = self.bc6h_settings.len() * self.bc6h_aligned_size;
-        self.add_task(
-            key,
-            texture_view,
-            width,
-            height,
-            CompressionVariant::BC6H,
-            Some(settings_offset),
-        );
-        self.bc6h_settings.push(settings);
-    }
+        let settings = settings.into();
+        let settings_offset = match settings {
+            Some(Settings::BC6H(settings)) => {
+                let settings_offset = Some(self.bc6h_settings.len() * self.bc6h_aligned_size);
+                self.bc6h_settings.push(settings);
+                settings_offset
+            }
+            Some(Settings::BC7(settings)) => {
+                let settings_offset = Some(self.bc7_settings.len() * self.bc7_aligned_size);
+                self.bc7_settings.push(settings);
+                settings_offset
+            }
+            _ if variant == CompressionVariant::BC6H => {
+                panic!("no settings given for BC6H")
+            }
+            _ if variant == CompressionVariant::BC7 => {
+                panic!("no settings given for BC7")
+            }
+            _ => None,
+        };
 
-    pub fn add_bc7_task(
-        &mut self,
-        key: &str,
-        texture_view: &TextureView,
-        width: u32,
-        height: u32,
-        settings: Bc7Settings,
-    ) {
-        let settings_offset = self.bc7_settings.len() * self.bc7_aligned_size;
-        self.add_task(
-            key,
-            texture_view,
-            width,
-            height,
-            CompressionVariant::BC7,
-            Some(settings_offset),
-        );
-        self.bc7_settings.push(settings);
+        self.add_task(key, texture_view, width, height, variant, settings_offset);
     }
 
     fn add_task(
@@ -526,7 +464,7 @@ impl BlockCompressor {
                 let offset = i * self.bc6h_aligned_size;
                 self.scratch_buffer
                     .resize(offset + self.bc6h_aligned_size, 0);
-                self.scratch_buffer[offset..offset + size_of::<Bc6HSettings>()]
+                self.scratch_buffer[offset..offset + size_of::<BC6HSettings>()]
                     .copy_from_slice(cast_slice(&[*settings]));
             }
             if let Some(mut data) = self.queue.write_buffer_with(
@@ -554,7 +492,7 @@ impl BlockCompressor {
                 let offset = i * self.bc7_aligned_size;
                 self.scratch_buffer
                     .resize(offset + self.bc7_aligned_size, 0);
-                self.scratch_buffer[offset..offset + size_of::<Bc7Settings>()]
+                self.scratch_buffer[offset..offset + size_of::<BC7Settings>()]
                     .copy_from_slice(cast_slice(&[*settings]));
             }
             if let Some(mut data) = self.queue.write_buffer_with(
@@ -613,7 +551,7 @@ impl BlockCompressor {
         }
     }
 
-    pub fn get_texture(&mut self, name: &str) -> Option<Texture> {
+    pub fn create_texture(&mut self, name: &str) -> Option<Texture> {
         let task_index = self.task.iter().position(|task| task.key == name)?;
         let task = self.task.swap_remove(task_index);
 
@@ -675,7 +613,7 @@ impl BlockCompressor {
         Some(texture)
     }
 
-    pub fn get_block_data(&mut self, key: &str) -> Option<Vec<u8>> {
+    pub fn download_block_data(&mut self, key: &str) -> Option<Vec<u8>> {
         let task_index = self.task.iter().position(|task| task.key == key)?;
         let task = self.task.swap_remove(task_index);
 

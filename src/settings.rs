@@ -1,8 +1,25 @@
 use bytemuck::{Pod, Zeroable};
 
+pub enum Settings {
+    BC6H(BC6HSettings),
+    BC7(BC7Settings),
+}
+
+impl From<BC6HSettings> for Option<Settings> {
+    fn from(settings: BC6HSettings) -> Self {
+        Some(Settings::BC6H(settings))
+    }
+}
+
+impl From<BC7Settings> for Option<Settings> {
+    fn from(settings: BC7Settings) -> Self {
+        Some(Settings::BC7(settings))
+    }
+}
+
 #[derive(Copy, Clone, Debug, Default, Pod, Zeroable)]
 #[repr(C)]
-pub struct Bc6HSettings {
+pub struct BC6HSettings {
     slow_mode: u32,
     fast_mode: u32,
     refine_iterations_1p: u32,
@@ -10,7 +27,7 @@ pub struct Bc6HSettings {
     fast_skip_threshold: u32,
 }
 
-impl Bc6HSettings {
+impl BC6HSettings {
     pub const fn very_fast() -> Self {
         Self {
             slow_mode: false as _,
@@ -64,7 +81,7 @@ impl Bc6HSettings {
 
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]
 #[repr(C)]
-pub struct Bc7Settings {
+pub struct BC7Settings {
     refine_iterations: [u32; 8],
     mode_selection: [u32; 4],
     skip_mode2: u32,
@@ -76,7 +93,7 @@ pub struct Bc7Settings {
     channels: u32,
 }
 
-impl Bc7Settings {
+impl BC7Settings {
     pub const fn opaque_ultra_fast() -> Self {
         Self {
             channels: 3,

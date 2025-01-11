@@ -19,8 +19,7 @@ mod block_compressor;
 mod settings;
 
 pub use block_compressor::{BlockCompressor, CompressionVariant};
-pub use settings::Bc6HSettings;
-pub use settings::Bc7Settings;
+pub use settings::{BC6HSettings, BC7Settings};
 
 // TODO: NHA Implement BC6H
 // TODO: NHA Implement BC7
@@ -46,36 +45,73 @@ fn main() {
 
     match variant {
         CompressionVariant::BC1 => {
-            compressor.add_bc1_task(&file_name, &texture_view, width, height);
-        }
-        CompressionVariant::BC2 => {
-            compressor.add_bc2_task(&file_name, &texture_view, width, height);
-        }
-        CompressionVariant::BC3 => {
-            compressor.add_bc3_task(&file_name, &texture_view, width, height);
-        }
-        CompressionVariant::BC4 => {
-            compressor.add_bc4_task(&file_name, &texture_view, width, height);
-        }
-        CompressionVariant::BC5 => {
-            compressor.add_bc5_task(&file_name, &texture_view, width, height);
-        }
-        CompressionVariant::BC6H => {
-            compressor.add_bc6h_task(
+            compressor.add_compression_task(
                 &file_name,
                 &texture_view,
                 width,
                 height,
-                Bc6HSettings::very_fast(),
+                CompressionVariant::BC1,
+                None,
+            );
+        }
+        CompressionVariant::BC2 => {
+            compressor.add_compression_task(
+                &file_name,
+                &texture_view,
+                width,
+                height,
+                CompressionVariant::BC2,
+                None,
+            );
+        }
+        CompressionVariant::BC3 => {
+            compressor.add_compression_task(
+                &file_name,
+                &texture_view,
+                width,
+                height,
+                CompressionVariant::BC3,
+                None,
+            );
+        }
+        CompressionVariant::BC4 => {
+            compressor.add_compression_task(
+                &file_name,
+                &texture_view,
+                width,
+                height,
+                CompressionVariant::BC4,
+                None,
+            );
+        }
+        CompressionVariant::BC5 => {
+            compressor.add_compression_task(
+                &file_name,
+                &texture_view,
+                width,
+                height,
+                CompressionVariant::BC5,
+                None,
+            );
+        }
+        CompressionVariant::BC6H => {
+            compressor.add_compression_task(
+                &file_name,
+                &texture_view,
+                width,
+                height,
+                CompressionVariant::BC6H,
+                BC6HSettings::slow(),
             );
         }
         CompressionVariant::BC7 => {
-            compressor.add_bc7_task(
+            compressor.add_compression_task(
                 &file_name,
                 &texture_view,
                 width,
                 height,
-                Bc7Settings::alpha_very_fast(),
+                CompressionVariant::BC7,
+                BC7Settings::alpha_slow(),
             );
         }
     }
@@ -83,7 +119,7 @@ fn main() {
     compress(&mut compressor, &device, &queue);
 
     let block_data = compressor
-        .get_block_data(&file_name)
+        .download_block_data(&file_name)
         .expect("block data was not found");
 
     write_dds_file(&file_name, variant, width, height, block_data);
