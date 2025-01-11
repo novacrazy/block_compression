@@ -313,6 +313,11 @@ impl BlockCompressor {
         pipelines.insert(variant, pipeline);
     }
 
+    /// Add a task to compress the given texture view to the given block compression variant.
+    ///
+    /// BC6H adn BC7 can be configured with the [`BC6HSettings`] and [`BC7Settings`] structs.
+    /// In case settings are not provided for them, their respective `slow` settings will be
+    /// used as a default.
     pub fn add_compression_task(
         &mut self,
         key: &str,
@@ -335,10 +340,14 @@ impl BlockCompressor {
                 settings_offset
             }
             _ if variant == CompressionVariant::BC6H => {
-                panic!("no settings given for BC6H")
+                let settings_offset = Some(self.bc6h_settings.len() * self.bc6h_aligned_size);
+                self.bc6h_settings.push(BC6HSettings::slow());
+                settings_offset
             }
             _ if variant == CompressionVariant::BC7 => {
-                panic!("no settings given for BC7")
+                let settings_offset = Some(self.bc7_settings.len() * self.bc7_aligned_size);
+                self.bc7_settings.push(BC7Settings::alpha_slow());
+                settings_offset
             }
             _ => None,
         };

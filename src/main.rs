@@ -5,7 +5,7 @@ use pollster::block_on;
 use std::fs::File;
 use std::path::PathBuf;
 use std::sync::Arc;
-
+use std::time::Instant;
 use wgpu::util::{DeviceExt, TextureDataOrder};
 use wgpu::{
     Backends, BufferDescriptor, BufferUsages, CommandEncoderDescriptor, ComputePassDescriptor,
@@ -33,6 +33,8 @@ fn main() {
     let file_name = "input4096alpha.png".to_string();
     let variant = CompressionVariant::BC3;
 
+    let start = Instant::now();
+
     let texture = read_image_and_create_texture(&device, &queue, &file_name);
     let texture_view = texture.create_view(&TextureViewDescriptor {
         format: Some(TextureFormat::Rgba8Unorm),
@@ -40,6 +42,12 @@ fn main() {
     });
     let width = texture.width();
     let height = texture.height();
+
+    let duration = start.elapsed();
+    println!(
+        "Image read and upload took: {:.3} ms",
+        duration.as_secs_f64() * 1000.0
+    );
 
     let mut compressor: BlockCompressor = BlockCompressor::new(device.clone(), queue.clone());
 
@@ -118,11 +126,27 @@ fn main() {
 
     compress(&mut compressor, &device, &queue);
 
+    let start = Instant::now();
+
     let block_data = compressor
         .download_block_data(&file_name)
         .expect("block data was not found");
 
+    let duration = start.elapsed();
+    println!(
+        "Block data download took: {:.3} ms",
+        duration.as_secs_f64() * 1000.0
+    );
+
+    let start = Instant::now();
+
     write_dds_file(&file_name, variant, width, height, block_data);
+
+    let duration = start.elapsed();
+    println!(
+        "DDS output to disk took: {:.3} ms",
+        duration.as_secs_f64() * 1000.0
+    );
 }
 
 fn create_resources() -> (Arc<Device>, Arc<Queue>) {
