@@ -1,13 +1,12 @@
+use std::{fs::File, path::PathBuf, sync::Arc, time::Instant};
+
+use block_compression::{BC6HSettings, BC7Settings, BlockCompressor, CompressionVariant};
 use bytemuck::cast_slice;
-use ddsfile::{AlphaMode, D3D10ResourceDimension, Dds, NewDxgiParams};
+use ddsfile::{AlphaMode, D3D10ResourceDimension, Dds, DxgiFormat, NewDxgiParams};
 use image::{EncodableLayout, ImageReader};
 use pollster::block_on;
-use std::fs::File;
-use std::path::PathBuf;
-use std::sync::Arc;
-use std::time::Instant;
-use wgpu::util::{DeviceExt, TextureDataOrder};
 use wgpu::{
+    util::{DeviceExt, TextureDataOrder},
     Backends, Buffer, BufferDescriptor, BufferUsages, CommandEncoderDescriptor,
     ComputePassDescriptor, ComputePassTimestampWrites, Device, DeviceDescriptor, Dx12Compiler,
     Extent3d, Features, Gles3MinorVersion, Instance, InstanceDescriptor, InstanceFlags, Limits,
@@ -15,21 +14,11 @@ use wgpu::{
     TextureFormat, TextureUsages, TextureViewDescriptor,
 };
 
-mod block_compressor;
-mod settings;
-
-pub use block_compressor::{BlockCompressor, CompressionVariant};
-pub use settings::{BC6HSettings, BC7Settings};
-
-// TODO: NHA Implement BC6H
-// TODO: NHA Implement BC7
-// TODO: Properly crate layout as a lib / with extra bin project
-// TODO: Documentation
-// TODO: Decide on the error model
-
 fn main() {
-    let file_name = "input4096alpha.png".to_string();
-    let variant = CompressionVariant::BC3;
+    let (variant, file_name) = match parse_args() {
+        Some(args) => args,
+        None => return,
+    };
 
     let (device, queue) = create_resources();
     let mut compressor: BlockCompressor = BlockCompressor::new(device.clone(), queue.clone());
@@ -93,7 +82,6 @@ fn main() {
         }
     }
 
-    compressor.upload();
     compress(&mut compressor, &device, &queue);
 
     let start = Instant::now();
@@ -306,7 +294,7 @@ fn write_dds_file(
         height,
         width,
         depth: None,
-        format: variant.dxgi_format(),
+        format: dxgi_format(variant),
         mipmap_levels: Some(1),
         array_layers: None,
         caps2: None,
@@ -323,4 +311,56 @@ fn write_dds_file(
 
     let mut file = File::create(dds_name).expect("failed to create output file");
     dds.write(&mut file).expect("failed to write DDS file");
+}
+
+fn dxgi_format(variant: CompressionVariant) -> DxgiFormat {
+    match variant {
+        CompressionVariant::BC1 => DxgiFormat::BC1_UNorm_sRGB,
+        CompressionVariant::BC2 => DxgiFormat::BC2_UNorm_sRGB,
+        CompressionVariant::BC3 => DxgiFormat::BC3_UNorm_sRGB,
+        CompressionVariant::BC4 => DxgiFormat::BC4_UNorm,
+        CompressionVariant::BC5 => DxgiFormat::BC5_UNorm,
+        CompressionVariant::BC6H => DxgiFormat::BC6H_UF16,
+        CompressionVariant::BC7 => DxgiFormat::BC7_UNorm_sRGB,
+    }
+}
+
+fn print_help() {
+    println!("Usage: compressor <compression_variant> <input_file>");
+    println!("\nCompression variants:");
+    println!("  bc1  - BC1 compression (RGB)");
+    println!("  bc2  - BC2 compression (RGBA)");
+    println!("  bc3  - BC3 compression (RGBA)");
+    println!("  bc4  - BC4 compression (R)");
+    println!("  bc5  - BC5 compression (RG)");
+    println!("  bc6h - BC6H compression (RGB HDR)");
+    println!("  bc7  - BC7 compression (RGBA)");
+}
+
+fn parse_args() -> Option<(CompressionVariant, String)> {
+    let args: Vec<String> = std::env::args().collect();
+
+    if args.len() != 3 || args.contains(&"--help".to_string()) {
+        print_help();
+        return None;
+    }
+
+    let variant = match args[1].to_lowercase().as_str() {
+        "bc1" => CompressionVariant::BC1,
+        "bc2" => CompressionVariant::BC2,
+        "bc3" => CompressionVariant::BC3,
+        "bc4" => CompressionVariant::BC4,
+        "bc5" => CompressionVariant::BC5,
+        "bc6h" => CompressionVariant::BC6H,
+        "bc7" => CompressionVariant::BC7,
+        _ => {
+            println!("Error: Invalid compression variant");
+            print_help();
+            return None;
+        }
+    };
+
+    let file_name = args[2].clone();
+
+    Some((variant, file_name))
 }

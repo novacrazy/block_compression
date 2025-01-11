@@ -1,0 +1,15 @@
+[package]
+name = "compressor"
+version = "0.1.0"
+publish = false
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+block_compression = { path = ".." }
+bytemuck = { workspace = true }
+ddsfile = { workspace = true }
+image = { workspace = true }
+pollster = { workspace = true }
+wgpu = { workspace = true }

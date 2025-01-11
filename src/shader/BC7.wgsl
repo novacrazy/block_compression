@@ -1,5 +1,5 @@
 // Copyright (c) 2025, Nils Hasenbanck
-// Copyright (c) 2016, Intel Corporation
+// Copyright (c) 2016-2024, Intel Corporation
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated
 // documentation files (the "Software"), to deal in the Software without restriction, including without limitation
@@ -15,8 +15,10 @@
 // TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-struct Offset {
-    block: u32
+struct Uniforms {
+    width: u32,
+    height: u32,
+    blocks_offset: u32,
 }
 
 struct Settings {
@@ -39,7 +41,7 @@ struct State {
 
 @group(0) @binding(0) var source_texture: texture_2d<f32>;
 @group(0) @binding(1) var<storage, read_write> block_buffer: array<u32>;
-@group(0) @binding(2) var<uniform> offsets_buffer: Offset;
+@group(0) @binding(2) var<uniform> uniforms: Uniforms;
 @group(0) @binding(3) var<storage, read> settings: Settings;
 
 var<private> block: array<f32, 64>;
@@ -73,7 +75,7 @@ fn load_block_interleaved_rgba(xx: u32, yy: u32) {
 }
 
 fn store_data(block_width: u32, xx: u32, yy: u32) {
-    let offset = yy * block_width * 4u + xx * 4u;
+    let offset = uniforms.blocks_offset + (yy * block_width * 4u + xx * 4u);
 
     block_buffer[offset + 0] = state.data[0];
     block_buffer[offset + 1] = state.data[1];
@@ -489,9 +491,8 @@ fn compress_bc7(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let xx = global_id.x;
     let yy = global_id.y;
 
-    let texture_dimensions: vec2<u32> = textureDimensions(source_texture);
-    let block_width = (texture_dimensions.x + 3u) / 4u;
-    let block_height = (texture_dimensions.y + 3u) / 4u;
+    let block_width = (uniforms.width + 3u) / 4u;
+    let block_height = (uniforms.height + 3u) / 4u;
 
     if (xx >= block_width || yy >= block_height) {
         return;

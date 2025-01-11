@@ -1,11 +1,6 @@
-use crate::settings::{BC6HSettings, Settings};
-use crate::BC7Settings;
-use bytemuck::{cast_slice, Pod, Zeroable};
-use ddsfile::DxgiFormat;
-use std::collections::HashMap;
-use std::num::NonZeroU64;
-use std::sync::Arc;
+use std::{collections::HashMap, num::NonZeroU64, sync::Arc};
 
+use bytemuck::{cast_slice, Pod, Zeroable};
 use wgpu::{
     self, include_wgsl, BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout,
     BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingResource, BindingType, Buffer,
@@ -14,81 +9,17 @@ use wgpu::{
     ShaderModule, ShaderStages, TextureSampleType, TextureView, TextureViewDimension,
 };
 
-#[derive(Copy, Clone, Hash, Eq, PartialEq, Ord, PartialOrd, Debug)]
-pub enum CompressionVariant {
-    BC1,
-    BC2,
-    BC3,
-    BC4,
-    BC5,
-    BC6H,
-    BC7,
-}
-
-impl CompressionVariant {
-    fn name(self) -> &'static str {
-        match self {
-            CompressionVariant::BC1 => "bc1",
-            CompressionVariant::BC2 => "bc2",
-            CompressionVariant::BC3 => "bc3",
-            CompressionVariant::BC4 => "bc4",
-            CompressionVariant::BC5 => "bc5",
-            CompressionVariant::BC6H => "bc6h",
-            CompressionVariant::BC7 => "bc7",
-        }
-    }
-
-    fn entry_point(self) -> &'static str {
-        match self {
-            CompressionVariant::BC1 => "compress_bc1",
-            CompressionVariant::BC2 => "compress_bc2",
-            CompressionVariant::BC3 => "compress_bc3",
-            CompressionVariant::BC4 => "compress_bc4",
-            CompressionVariant::BC5 => "compress_bc5",
-            CompressionVariant::BC6H => "compress_bc6h",
-            CompressionVariant::BC7 => "compress_bc7",
-        }
-    }
-
-    fn block_byte_size(self) -> u32 {
-        match self {
-            CompressionVariant::BC1 | CompressionVariant::BC4 => 8,
-            CompressionVariant::BC2
-            | CompressionVariant::BC3
-            | CompressionVariant::BC5
-            | CompressionVariant::BC6H
-            | CompressionVariant::BC7 => 16,
-        }
-    }
-
-    pub fn blocks_byte_size(self, width: u32, height: u32) -> usize {
-        let block_width = (width as usize + 3) / 4;
-        let block_height = (height as usize + 3) / 4;
-        let block_count = block_width * block_height;
-        let block_size = self.block_byte_size() as usize;
-        block_count * block_size
-    }
-
-    // TODO: NHA move behind feature flag.
-    pub(crate) fn dxgi_format(self) -> DxgiFormat {
-        match self {
-            CompressionVariant::BC1 => DxgiFormat::BC1_UNorm_sRGB,
-            CompressionVariant::BC2 => DxgiFormat::BC2_UNorm_sRGB,
-            CompressionVariant::BC3 => DxgiFormat::BC3_UNorm_sRGB,
-            CompressionVariant::BC4 => DxgiFormat::BC4_UNorm,
-            CompressionVariant::BC5 => DxgiFormat::BC5_UNorm,
-            CompressionVariant::BC6H => DxgiFormat::BC6H_UF16,
-            CompressionVariant::BC7 => DxgiFormat::BC7_UNorm_sRGB,
-        }
-    }
-}
+use crate::{
+    settings::{BC6HSettings, Settings},
+    BC7Settings, CompressionVariant,
+};
 
 #[derive(Copy, Clone, Zeroable, Pod)]
 #[repr(C)]
 struct Uniforms {
     width: u32,
     height: u32,
-    block: u32,
+    blocks_offset: u32,
 }
 
 struct Task {
@@ -100,12 +31,6 @@ struct Task {
     buffer_offset: u32,
     bind_group: BindGroup,
     settings: Option<Settings>,
-}
-
-#[derive(Copy, Clone, Eq, PartialEq, Debug)]
-enum Status {
-    Ready,
-    Uploaded,
 }
 
 pub struct BlockCompressor {
@@ -121,10 +46,10 @@ pub struct BlockCompressor {
     uniforms_aligned_size: usize,
     bc6h_aligned_size: usize,
     bc7_aligned_size: usize,
-    status: Status,
 }
 
 impl BlockCompressor {
+    /// Creates a new block compressor instance.
     pub fn new(device: Arc<Device>, queue: Arc<Queue>) -> Self {
         let limits = device.limits();
 
@@ -232,7 +157,6 @@ impl BlockCompressor {
             uniforms_aligned_size,
             bc6h_aligned_size,
             bc7_aligned_size,
-            status: Status::Ready,
         }
     }
 
@@ -330,11 +254,37 @@ impl BlockCompressor {
         pipelines.insert(variant, pipeline);
     }
 
-    /// Add a task to compress the given texture view to the given block compression variant.
+    /// Adds a texture compression task to the queue.
     ///
-    /// BC6H adn BC7 can be configured with the [`BC6HSettings`] and [`BC7Settings`] structs.
-    /// In case settings are not provided for them, their respective `slow` settings will be
-    /// used as a default.
+    /// This API is designed to be very flexible. For example, it is possible to fill the mip map
+    /// levels of a texture with multiple calls to this function.
+    ///
+    /// # Buffer Requirements
+    /// The destination buffer must have sufficient capacity to store the compressed blocks at the
+    /// specified offset. The required size can be calculated using [`CompressionVariant::blocks_byte_size()`].
+    ///
+    /// For example:
+    ///
+    /// ```ignore
+    /// let required_size = variant.blocks_byte_size(width, height);
+    /// let total_size = offset + required_size;
+    /// assert!(buffer.size() >= total_size);
+    /// ```
+    ///
+    /// # Arguments
+    /// * `variant` - The block compression format to use
+    /// * `texture_view` - View into the source texture to compress
+    /// * `width` - Width of the texture view in pixels
+    /// * `height` - Height of the texture view in pixels
+    /// * `buffer` - Destination storage buffer for the compressed data
+    /// * `offset` - Optional offset in bytes into the destination buffer
+    /// * `settings` - Optional compression settings for BC6H/BC7.
+    ///                If none provided, defaults to `slow` preset.
+    ///
+    /// # Panics
+    /// - If width or height is not a multiple of 4
+    /// - If the destination buffer is not a storage buffer
+    /// - If the destination buffer is too small to hold the compressed blocks at the specified offset
     #[allow(clippy::too_many_arguments)]
     pub fn add_compression_task(
         &mut self,
@@ -346,12 +296,6 @@ impl BlockCompressor {
         offset: Option<u32>,
         settings: impl Into<Option<Settings>>,
     ) {
-        assert_ne!(
-            self.status,
-            Status::Uploaded,
-            "added compression task after upload and before dispatch"
-        );
-
         let mut settings = settings.into();
 
         if variant == CompressionVariant::BC6H && settings.is_none() {
@@ -386,6 +330,21 @@ impl BlockCompressor {
     ) {
         assert_eq!(height % 4, 0);
         assert_eq!(width % 4, 0);
+        assert!(
+            buffer.usage().contains(BufferUsages::STORAGE),
+            "buffer needs to be a storage buffer"
+        );
+
+        let required_size = variant.blocks_byte_size(width, height);
+        let total_size = offset.unwrap_or(0) as usize + required_size;
+
+        assert!(
+            buffer.size() as usize >= total_size,
+            "buffer size ({}) is too small to hold compressed blocks at offset {}. Required size: {}",
+            buffer.size(),
+            offset.unwrap_or(0),
+            total_size
+        );
 
         let block_buffer = self.device.create_buffer(&BufferDescriptor {
             label: Some("block buffer"),
@@ -480,14 +439,51 @@ impl BlockCompressor {
         });
     }
 
-    pub fn upload(&mut self) {
-        if self.status == Status::Uploaded {
-            return;
+    fn update_buffer_sizes(&mut self) {
+        let total_uniforms_size = self.uniforms_aligned_size * self.task.len();
+        if total_uniforms_size > self.uniforms_buffer.size() as usize {
+            self.uniforms_buffer = self.device.create_buffer(&BufferDescriptor {
+                label: Some("uniforms buffer"),
+                size: total_uniforms_size as u64,
+                usage: BufferUsages::COPY_DST | BufferUsages::UNIFORM,
+                mapped_at_creation: false,
+            });
         }
-        self.status = Status::Uploaded;
 
-        self.update_buffer_sizes();
+        let bc6_setting_count = self
+            .task
+            .iter()
+            .filter(|task| task.variant == CompressionVariant::BC6H)
+            .count();
 
+        let total_bc6h_size = self.bc6h_aligned_size * bc6_setting_count;
+        if total_bc6h_size > self.bc6h_settings_buffer.size() as usize {
+            self.bc6h_settings_buffer = self.device.create_buffer(&BufferDescriptor {
+                label: Some("bc6h settings buffer"),
+                size: total_bc6h_size as u64,
+                usage: BufferUsages::COPY_DST | BufferUsages::STORAGE,
+                mapped_at_creation: false,
+            });
+        }
+
+        let bc7_setting_count = self
+            .task
+            .iter()
+            .filter(|task| task.variant == CompressionVariant::BC7)
+            .count();
+
+        let total_bc7_size = self.bc7_aligned_size * bc7_setting_count;
+        if total_bc7_size > self.bc7_settings_buffer.size() as usize {
+            self.bc7_settings_buffer = self.device.create_buffer(&BufferDescriptor {
+                label: Some("bc7 settings buffer"),
+                size: total_bc7_size as u64,
+                usage: BufferUsages::COPY_DST | BufferUsages::STORAGE,
+                mapped_at_creation: false,
+            });
+        }
+    }
+
+    fn upload(&mut self) {
         self.scratch_buffer.clear();
         for (index, task) in self
             .task
@@ -540,7 +536,7 @@ impl BlockCompressor {
         }
         if !self.scratch_buffer.is_empty() {
             if let Some(mut data) = self.queue.write_buffer_with(
-                &self.bc6h_settings_buffer,
+                &self.bc7_settings_buffer,
                 0,
                 NonZeroU64::new(self.scratch_buffer.len() as u64).unwrap(),
             ) {
@@ -556,7 +552,7 @@ impl BlockCompressor {
             let uniforms = Uniforms {
                 width: task.width,
                 height: task.height,
-                block: task.buffer_offset,
+                blocks_offset: task.buffer_offset,
             };
 
             self.scratch_buffer
@@ -575,57 +571,13 @@ impl BlockCompressor {
         }
     }
 
-    fn update_buffer_sizes(&mut self) {
-        let total_uniforms_size = self.uniforms_aligned_size * self.task.len();
-        if total_uniforms_size > self.uniforms_buffer.size() as usize {
-            self.uniforms_buffer = self.device.create_buffer(&BufferDescriptor {
-                label: Some("uniforms buffer"),
-                size: total_uniforms_size as u64,
-                usage: BufferUsages::COPY_DST | BufferUsages::UNIFORM,
-                mapped_at_creation: false,
-            });
-        }
-
-        let bc6_setting_count = self
-            .task
-            .iter()
-            .filter(|task| task.variant == CompressionVariant::BC6H)
-            .count();
-
-        let total_bc6h_size = self.bc6h_aligned_size * bc6_setting_count;
-        if total_bc6h_size > self.bc6h_settings_buffer.size() as usize {
-            self.bc6h_settings_buffer = self.device.create_buffer(&BufferDescriptor {
-                label: Some("bc6h settings buffer"),
-                size: total_bc6h_size as u64,
-                usage: BufferUsages::COPY_DST | BufferUsages::STORAGE,
-                mapped_at_creation: false,
-            });
-        }
-
-        let bc7_setting_count = self
-            .task
-            .iter()
-            .filter(|task| task.variant == CompressionVariant::BC7)
-            .count();
-
-        let total_bc7_size = self.bc7_aligned_size * bc7_setting_count;
-        if total_bc7_size > self.bc7_settings_buffer.size() as usize {
-            self.bc7_settings_buffer = self.device.create_buffer(&BufferDescriptor {
-                label: Some("bc7 settings buffer"),
-                size: total_bc7_size as u64,
-                usage: BufferUsages::COPY_DST | BufferUsages::STORAGE,
-                mapped_at_creation: false,
-            });
-        }
-    }
-
+    /// Will upload all dispatch data and then dispatches all compression tasks to the GPU.
+    ///
+    /// # Arguments
+    /// * `pass` - The compute pass to record commands into
     pub fn compress(&mut self, pass: &mut ComputePass) {
-        assert_eq!(
-            self.status,
-            Status::Uploaded,
-            "dispatch called before upload"
-        );
-        self.status = Status::Ready;
+        self.update_buffer_sizes();
+        self.upload();
 
         for task in self.task.drain(..) {
             let pipeline = self
