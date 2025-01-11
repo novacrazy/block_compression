@@ -174,6 +174,178 @@ fn get_skips(part_id: i32) -> array<u32, 3> {
     return skips;
 }
 
+// Principal Component Analysis (PCA) bound
+fn get_pca_bound(covar: array<f32, 10>, channels: u32) -> f32 {
+    let power_iterations = 4u; // Quite approximative, but enough for bounding
+
+    var covar_scaled = covar;
+    let inv_var = 1.0 / (256.0 * 256.0);
+    for (var k = 0u; k < 10u; k++) {
+        covar_scaled[k] *= inv_var;
+    }
+
+    let eps = sq(0.001);
+    covar_scaled[0] += eps;
+    covar_scaled[4] += eps;
+    covar_scaled[7] += eps;
+
+    var axis: array<f32, 4>;
+    compute_axis(&axis, &covar_scaled, power_iterations, channels);
+
+    var a_vec: array<f32, 4>;
+    if (channels == 3u) {
+        ssymv3(&a_vec, &covar_scaled, &axis);
+    } else if (channels == 4u) {
+        ssymv4(&a_vec, &covar_scaled, &axis);
+    }
+
+    var sq_sum = 0.0;
+    for (var p = 0u; p < channels; p++) {
+        sq_sum += sq(a_vec[p]);
+    }
+    let lambda = sqrt(sq_sum);
+
+    var bound = covar_scaled[0] + covar_scaled[4] + covar_scaled[7];
+    if (channels == 4u) {
+        bound += covar_scaled[9];
+    }
+    bound -= lambda;
+    bound = max(bound, 0.0);
+
+    return bound;
+}
+
+fn ssymv3(a: ptr<function, array<f32, 4>>, covar: ptr<function, array<f32, 10>>, b: ptr<function, array<f32, 4>>) {
+    (*a)[0] = (*covar)[0] * (*b)[0] + (*covar)[1] * (*b)[1] + (*covar)[2] * (*b)[2];
+    (*a)[1] = (*covar)[1] * (*b)[0] + (*covar)[4] * (*b)[1] + (*covar)[5] * (*b)[2];
+    (*a)[2] = (*covar)[2] * (*b)[0] + (*covar)[5] * (*b)[1] + (*covar)[7] * (*b)[2];
+}
+
+fn ssymv4(a: ptr<function, array<f32, 4>>, covar: ptr<function, array<f32, 10>>, b: ptr<function, array<f32, 4>>) {
+    (*a)[0] = (*covar)[0] * (*b)[0] + (*covar)[1] * (*b)[1] + (*covar)[2] * (*b)[2] + (*covar)[3] * (*b)[3];
+    (*a)[1] = (*covar)[1] * (*b)[0] + (*covar)[4] * (*b)[1] + (*covar)[5] * (*b)[2] + (*covar)[6] * (*b)[3];
+    (*a)[2] = (*covar)[2] * (*b)[0] + (*covar)[5] * (*b)[1] + (*covar)[7] * (*b)[2] + (*covar)[8] * (*b)[3];
+    (*a)[3] = (*covar)[3] * (*b)[0] + (*covar)[6] * (*b)[1] + (*covar)[8] * (*b)[2] + (*covar)[9] * (*b)[3];
+}
+
+fn compute_axis(axis: ptr<function, array<f32, 4>>, covar: ptr<function, array<f32, 10>>, power_iterations: u32, channels: u32) {
+    var a_vec: array<f32, 4> = array<f32, 4>(1.0, 1.0, 1.0, 1.0);
+
+    for (var i = 0u; i < power_iterations; i++) {
+        if (channels == 3u) {
+            ssymv3(axis, covar, &a_vec);
+        } else if (channels == 4u) {
+            ssymv4(axis, covar, &a_vec);
+        }
+
+        for (var p = 0u; p < channels; p++) {
+            a_vec[p] = (*axis)[p];
+        }
+
+        // Renormalize every other iteration
+        if (i % 2u == 1u) {
+            var norm_sq = 0.0;
+            for (var p = 0u; p < channels; p++) {
+                norm_sq += (*axis)[p] * (*axis)[p];
+            }
+
+            let rnorm = rsqrt(norm_sq);
+            for (var p = 0u; p < channels; p++) {
+                a_vec[p] *= rnorm;
+            }
+        }
+    }
+
+    for (var p = 0u; p < channels; p++) {
+        (*axis)[p] = a_vec[p];
+    }
+}
+
+fn compute_stats_masked(mask: u32, channels: u32) -> array<f32, 15> {
+    var stats: array<f32, 15>;
+
+    var mask_shifted = mask << 1u;
+    for (var k = 0u; k < 16u; k++) {
+        mask_shifted = mask_shifted >> 1u;
+        let flag = f32(mask_shifted & 1u);
+
+        var rgba: array<f32, 4>;
+        for (var p = 0u; p < channels; p++) {
+            rgba[p] = block[k + p * 16u] * flag;
+        }
+        stats[14] += flag;
+
+        stats[10] += rgba[0];
+        stats[11] += rgba[1];
+        stats[12] += rgba[2];
+
+        stats[0] += rgba[0] * rgba[0];
+        stats[1] += rgba[0] * rgba[1];
+        stats[2] += rgba[0] * rgba[2];
+
+        stats[4] += rgba[1] * rgba[1];
+        stats[5] += rgba[1] * rgba[2];
+
+        stats[7] += rgba[2] * rgba[2];
+
+        if (channels == 4u) {
+            stats[13] += rgba[3];
+            stats[3] += rgba[0] * rgba[3];
+            stats[6] += rgba[1] * rgba[3];
+            stats[8] += rgba[2] * rgba[3];
+            stats[9] += rgba[3] * rgba[3];
+        }
+    }
+
+    return stats;
+}
+
+fn covar_from_stats(stats: array<f32, 15>, channels: u32) -> array<f32, 10> {
+    var covar: array<f32, 10>;
+
+    covar[0] = stats[0] - stats[10] * stats[10] / stats[14];
+    covar[1] = stats[1] - stats[10] * stats[11] / stats[14];
+    covar[2] = stats[2] - stats[10] * stats[12] / stats[14];
+
+    covar[4] = stats[4] - stats[11] * stats[11] / stats[14];
+    covar[5] = stats[5] - stats[11] * stats[12] / stats[14];
+
+    covar[7] = stats[7] - stats[12] * stats[12] / stats[14];
+
+    if (channels == 4u) {
+        covar[3] = stats[3] - stats[10] * stats[13] / stats[14];
+        covar[6] = stats[6] - stats[11] * stats[13] / stats[14];
+        covar[8] = stats[8] - stats[12] * stats[13] / stats[14];
+        covar[9] = stats[9] - stats[13] * stats[13] / stats[14];
+    }
+
+    return covar;
+}
+
+fn block_pca_bound(mask: u32, channels: u32) -> f32 {
+    let stats = compute_stats_masked(mask, channels);
+    let covar = covar_from_stats(stats, channels);
+    return get_pca_bound(covar, channels);
+}
+
+fn block_pca_bound_split(mask: u32, full_stats: array<f32, 15>, channels: u32) -> f32 {
+    var stats = compute_stats_masked(mask, channels);
+
+    let covar1 = covar_from_stats(stats, channels);
+
+    for (var i = 0u; i < 15u; i++) {
+        stats[i] = full_stats[i] - stats[i];
+    }
+
+    let covar2 = covar_from_stats(stats, channels);
+
+    var bound = 0.0;
+    bound += get_pca_bound(covar1, channels);
+    bound += get_pca_bound(covar2, channels);
+
+    return sqrt(bound) * 256.0;
+}
+
 fn partial_sort_list(list: ptr<function, array<u32, 64>>, length: u32, partial_count: u32) {
     for (var k = 0u; k < partial_count; k++) {
         var best_idx = k;
