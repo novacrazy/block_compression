@@ -31,9 +31,9 @@ pub use settings::{BC6HSettings, BC7Settings};
 pub enum CompressionVariant {
     /// BC1 compression (RGB)
     BC1,
-    /// BC2 compression (RGBA)
+    /// BC2 compression with sharp alpha (RGBA)
     BC2,
-    /// BC3 compression (RGBA)
+    /// BC3 compression with smooth alpha (RGBA)
     BC3,
     /// BC4 compression (R)
     BC4,
@@ -41,7 +41,7 @@ pub enum CompressionVariant {
     BC5,
     /// BC6H compression (RGB HDR)
     BC6H,
-    /// BC7 compression (RGBA)
+    /// BC7 compression with smooth alpha (RGBA)
     BC7,
 }
 

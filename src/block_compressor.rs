@@ -260,9 +260,18 @@ impl BlockCompressor {
     /// This API is designed to be very flexible. For example, it is possible to fill the mip map
     /// levels of a texture with multiple calls to this function.
     ///
+    /// # Texture View Requirements
+    /// The source texture should provide enough channels for the texture compression. If only a
+    /// single red channel is provided and BC1 is used, only the red channel will be properly
+    /// encoded. All texture compression need to work on the raw texture data. The texture can
+    /// use a sRGB texture format, but it needs to provide a view with a non-sRGB texture format.
+    /// For example for a texture with a `Rgba8UnormSrgb` texture format, you will need to provide
+    /// a texture view with the `Rgba8Unorm` format. 
+    /// 
     /// # Buffer Requirements
     /// The destination buffer must have sufficient capacity to store the compressed blocks at the
-    /// specified offset. The required size can be calculated using [`CompressionVariant::blocks_byte_size()`].
+    /// specified offset. The required size can be calculated using 
+    /// [`CompressionVariant::blocks_byte_size()`].
     ///
     /// For example:
     ///

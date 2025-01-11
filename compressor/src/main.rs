@@ -329,12 +329,12 @@ fn print_help() {
     println!("Usage: compressor <compression_variant> <input_file>");
     println!("\nCompression variants:");
     println!("  bc1  - BC1 compression (RGB)");
-    println!("  bc2  - BC2 compression (RGBA)");
-    println!("  bc3  - BC3 compression (RGBA)");
+    println!("  bc2  - BC2 compression with sharp alpha (RGBA)");
+    println!("  bc3  - BC3 compression with smooth alpha (RGBA)");
     println!("  bc4  - BC4 compression (R)");
     println!("  bc5  - BC5 compression (RG)");
     println!("  bc6h - BC6H compression (RGB HDR)");
-    println!("  bc7  - BC7 compression (RGBA)");
+    println!("  bc7  - BC7 compression with smooth alpha (RGBA)");
 }
 
 fn parse_args() -> Option<(CompressionVariant, String)> {
