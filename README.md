@@ -3,7 +3,7 @@
 Texture block compression using WGPU compute shader.
 The shaders are a port of Intel's ISPC Texture Compressor's kernel to WGSL compute shader.
 
-## Supported block compressions:
+## Supported block compressions
 
 Currently supported block compressions are:
 

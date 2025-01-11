@@ -17,6 +17,7 @@ impl From<BC7Settings> for Option<Settings> {
     }
 }
 
+/// Encoding settings for BC6H.
 #[derive(Copy, Clone, Debug, Default, Pod, Zeroable)]
 #[repr(C)]
 pub struct BC6HSettings {
@@ -28,6 +29,7 @@ pub struct BC6HSettings {
 }
 
 impl BC6HSettings {
+    /// Very fast settings.
     pub const fn very_fast() -> Self {
         Self {
             slow_mode: false as _,
@@ -38,6 +40,7 @@ impl BC6HSettings {
         }
     }
 
+    /// Fast settings.
     pub const fn fast() -> Self {
         Self {
             slow_mode: false as _,
@@ -48,6 +51,7 @@ impl BC6HSettings {
         }
     }
 
+    /// Basic settings.
     pub const fn basic() -> Self {
         Self {
             slow_mode: false as _,
@@ -58,6 +62,7 @@ impl BC6HSettings {
         }
     }
 
+    /// Slow settings.
     pub const fn slow() -> Self {
         Self {
             slow_mode: true as _,
@@ -68,6 +73,7 @@ impl BC6HSettings {
         }
     }
 
+    /// Very slow settings.
     pub const fn very_slow() -> Self {
         Self {
             slow_mode: true as _,
@@ -79,6 +85,7 @@ impl BC6HSettings {
     }
 }
 
+/// Encoding settings for BC7.
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]
 #[repr(C)]
 pub struct BC7Settings {
@@ -94,6 +101,7 @@ pub struct BC7Settings {
 }
 
 impl BC7Settings {
+    /// Opaque ultra fast settings.
     pub const fn opaque_ultra_fast() -> Self {
         Self {
             channels: 3,
@@ -108,6 +116,7 @@ impl BC7Settings {
         }
     }
 
+    /// Opaque very fast settings.
     pub const fn opaque_very_fast() -> Self {
         Self {
             channels: 3,
@@ -122,6 +131,7 @@ impl BC7Settings {
         }
     }
 
+    /// Opaque fast settings.
     pub const fn opaque_fast() -> Self {
         Self {
             channels: 3,
@@ -136,6 +146,7 @@ impl BC7Settings {
         }
     }
 
+    /// Opaque basic settings.
     pub const fn opaque_basic() -> Self {
         Self {
             channels: 3,
@@ -150,6 +161,7 @@ impl BC7Settings {
         }
     }
 
+    /// Opaque slow settings.
     pub const fn opaque_slow() -> Self {
         Self {
             channels: 3,
@@ -164,6 +176,7 @@ impl BC7Settings {
         }
     }
 
+    /// Alpha ultra fast settings.
     pub const fn alpha_ultrafast() -> Self {
         Self {
             channels: 4,
@@ -178,6 +191,7 @@ impl BC7Settings {
         }
     }
 
+    /// Alpha very fast settings.
     pub const fn alpha_very_fast() -> Self {
         Self {
             channels: 4,
@@ -192,6 +206,7 @@ impl BC7Settings {
         }
     }
 
+    /// Alpha fast settings.
     pub const fn alpha_fast() -> Self {
         Self {
             channels: 4,
@@ -206,6 +221,7 @@ impl BC7Settings {
         }
     }
 
+    /// Alpha basic settings.
     pub const fn alpha_basic() -> Self {
         Self {
             channels: 4,
@@ -220,6 +236,7 @@ impl BC7Settings {
         }
     }
 
+    /// Alpha slow settings.
     pub const fn alpha_slow() -> Self {
         Self {
             channels: 4,

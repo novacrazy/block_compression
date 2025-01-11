@@ -33,6 +33,7 @@ struct Task {
     settings: Option<Settings>,
 }
 
+/// Compresses texture data with a block compression algorithm using WGPU compute shader.
 pub struct BlockCompressor {
     scratch_buffer: Vec<u8>,
     task: Vec<Task>,
@@ -279,7 +280,7 @@ impl BlockCompressor {
     /// * `buffer` - Destination storage buffer for the compressed data
     /// * `offset` - Optional offset in bytes into the destination buffer
     /// * `settings` - Optional compression settings for BC6H/BC7.
-    ///                If none provided, defaults to `slow` preset.
+    ///                If none provided, defaults to the slowest preset.
     ///
     /// # Panics
     /// - If width or height is not a multiple of 4
@@ -299,7 +300,7 @@ impl BlockCompressor {
         let mut settings = settings.into();
 
         if variant == CompressionVariant::BC6H && settings.is_none() {
-            settings = Some(Settings::BC6H(BC6HSettings::slow()));
+            settings = Some(Settings::BC6H(BC6HSettings::very_slow()));
         }
 
         if variant == CompressionVariant::BC7 && settings.is_none() {
