@@ -83,22 +83,25 @@ fn store_data(block_width: u32, xx: u32, yy: u32) {
     block_buffer[offset + 3] = state.data[3];
 }
 
-fn get_unquant_table(bits: u32) -> array<u32, 16> {
+fn get_unquant_value(bits: u32, index: i32) -> i32 {
     switch (bits) {
         case 2u: {
-            return array<u32, 16>(
-                0u, 21u, 43u, 64u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u
+            let table = array<i32, 16>(
+                0, 21, 43, 64, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
             );
+            return table[index];
         }
         case 3u: {
-            return array<u32, 16>(
-                0u, 9u, 18u, 27u, 37u, 46u, 55u, 64u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u
+            let table = array<i32, 16>(
+                0, 9, 18, 27, 37, 46, 55, 64, 0, 0, 0, 0, 0, 0, 0, 0
             );
+           return table[index];
         }
         default: {
-            return array<u32, 16>(
-                0u, 4u, 9u, 13u, 17u, 21u, 26u, 30u, 34u, 38u, 43u, 47u, 51u, 55u, 60u, 64u
+            let table = array<i32, 16>(
+                0, 4, 9, 13, 17, 21, 26, 30, 34, 38, 43, 47, 51, 55, 60, 64
             );
+           return table[index];
         }
     }
 }
@@ -346,6 +349,109 @@ fn block_pca_bound_split(mask: u32, full_stats: array<f32, 15>, channels: u32) -
     return sqrt(bound) * 256.0;
 }
 
+fn block_quant(qblock: ptr<function, array<u32, 2>>, bits: u32, ep: ptr<function, array<f32, 24>>, pattern: u32, channels: u32) -> f32 {
+    var total_err = 0.0;
+    let levels = 1u << bits;
+
+    (*qblock)[0] = 0u;
+    (*qblock)[1] = 0u;
+
+    var pattern_shifted = pattern;
+    for (var k = 0u; k < 16u; k++) {
+        let j = pattern_shifted & 3u;
+        pattern_shifted = pattern_shifted >> 2u;
+
+        var proj = 0.0;
+        var div = 0.0;
+        for (var p = 0u; p < channels; p++) {
+            let ep_a = (*ep)[8u * j + 0u + p];
+            let ep_b = (*ep)[8u * j + 4u + p];
+            proj += (block[k + p * 16u] - ep_a) * (ep_b - ep_a);
+            div += sq(ep_b - ep_a);
+        }
+
+        // TODO: NHA This could result in div by zero?
+        proj = proj / div;
+
+        let q1 = i32(proj * f32(levels) + 0.5);
+        let q1_clamped = clamp(q1, 1, i32(levels) - 1);
+
+        var err0 = 0.0;
+        var err1 = 0.0;
+        let w0 = get_unquant_value(bits, q1_clamped - 1);
+        let w1 = get_unquant_value(bits, q1_clamped);
+
+        for (var p = 0u; p < channels; p++) {
+            let ep_a = (*ep)[8u * j + 0u + p];
+            let ep_b = (*ep)[8u * j + 4u + p];
+            let dec_v0 = f32(((64 - w0) * i32(ep_a) + w0 * i32(ep_b) + 32) / 64);
+            let dec_v1 = f32(((64 - w1) * i32(ep_a) + w1 * i32(ep_b) + 32) / 64);
+            err0 += sq(dec_v0 - block[k + p * 16u]);
+            err1 += sq(dec_v1 - block[k + p * 16u]);
+        }
+
+        var best_err = err1;
+        var best_q = q1_clamped;
+        if (err0 < err1) {
+            best_err = err0;
+            best_q = q1_clamped - 1;
+        }
+
+        (*qblock)[k / 8u] |= u32(best_q) << (4u * (k % 8u));
+        total_err += best_err;
+    }
+
+    return total_err;
+}
+
+fn block_segment_core(ep: ptr<function, array<f32, 8>>, mask: u32, channels: u32) {
+    var axis: array<f32, 4>;
+    var dc: array<f32, 4>;
+    // TODO: NHA
+    //block_pca_axis(&axis, &dc, mask, channels);
+
+    var ext = array<f32, 2>(3.40282347e38, -3.40282347e38);
+
+    // Find min/max
+    var mask_shifted = mask << 1u;
+    for (var k = 0u; k < 16u; k++) {
+        mask_shifted = mask_shifted >> 1u;
+        if ((mask_shifted & 1u) == 0u) {
+            continue;
+        }
+
+        var dot = 0.0;
+        for (var p = 0u; p < channels; p++) {
+            dot += axis[p] * (block[16u * p + k] - dc[p]);
+        }
+
+        ext[0] = min(ext[0], dot);
+        ext[1] = max(ext[1], dot);
+    }
+
+    // Create some distance if the endpoints collapse
+    if (ext[1] - ext[0] < 1.0) {
+        ext[0] -= 0.5;
+        ext[1] += 0.5;
+    }
+
+    for (var i = 0u; i < 2u; i++) {
+        for (var p = 0u; p < channels; p++) {
+            (*ep)[4u * i + p] = ext[i] * axis[p] + dc[p];
+        }
+    }
+}
+
+fn block_segment(ep: ptr<function, array<f32, 8>>, mask: u32, channels: u32) {
+    block_segment_core(ep, mask, channels);
+
+    for (var i = 0u; i < 2u; i++) {
+        for (var p = 0u; p < channels; p++) {
+            (*ep)[4u * i + p] = clamp((*ep)[4u * i + p], 0.0, 255.0);
+        }
+    }
+}
+
 fn partial_sort_list(list: ptr<function, array<u32, 64>>, length: u32, partial_count: u32) {
     for (var k = 0u; k < partial_count; k++) {
         var best_idx = k;
@@ -524,16 +630,20 @@ fn bc7_enc_mode01237_part_fast(qep: ptr<function, array<i32, 24>>, qblock: ptr<f
     var ep: array<f32, 24>;
     for (var j = 0u; j < pairs; j++) {
         let mask = get_pattern_mask(part_id, j);
-        // TODO
-        //block_segment(&ep[j * 8], mask, channels);
+
+        // TODO: NHA can we remove this copy by maybe creating a second block_segment function that takes a 24 array with offset?
+        var temp_ep: array<f32, 8>;
+        block_segment(&temp_ep, mask, channels);
+
+        for (var k = 0u; k < 8u; k++) {
+            ep[j * 8u + k] = temp_ep[k];
+        }
     }
 
     // TODO
     //ep_quant_dequant(qep, &ep, mode, channels);
 
-    // TODO
-    //return block_quant(qblock, bits, &ep, pattern, channels);
-    return 0.0;
+    return block_quant(qblock, bits, &ep, pattern, channels);
 }
 
 fn bc7_enc_mode01237(mode: u32, part_list: array<i32, 64>, part_count: u32) {
@@ -587,9 +697,7 @@ fn bc7_enc_mode01237(mode: u32, part_list: array<i32, 64>, part_count: u32) {
         //ep_quant_dequant(&qep, &ep, mode, channels);
 
         let pattern = get_pattern(best_part_id);
-        // TODO
-        //let err = block_quant(&qblock, bits, ep, pattern, channels);
-        let err = 0.0;
+        let err = block_quant(&qblock, bits, &ep, pattern, channels);
 
         if (err < best_err) {
             for (var i = 0u; i < 8u * pairs; i++) {
