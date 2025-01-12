@@ -39,6 +39,15 @@ struct State {
     opaque_err: f32,
 }
 
+struct Mode45Parameters {
+    qep: array<i32, 8>,
+    qblock: array<u32, 2>,
+    aqep: array<i32, 2>,
+    aqblock: array<u32, 2>,
+    rotation: i32,
+    swap: i32,
+}
+
 @group(0) @binding(0) var source_texture: texture_2d<f32>;
 @group(0) @binding(1) var<storage, read_write> block_buffer: array<u32>;
 @group(0) @binding(2) var<uniform> uniforms: Uniforms;
@@ -522,7 +531,6 @@ fn block_quant(qblock: ptr<function, array<u32, 2>>, bits: u32, ep: ptr<function
             div += sq(ep_b - ep_a);
         }
 
-        // TODO: NHA This could result in div by zero?
         proj = proj / div;
 
         let q1 = i32(proj * f32(levels) + 0.5);
@@ -556,7 +564,7 @@ fn block_quant(qblock: ptr<function, array<u32, 2>>, bits: u32, ep: ptr<function
     return total_err;
 }
 
-fn block_segment_core(ep: ptr<function, array<f32, 8>>, mask: u32, channels: u32) {
+fn block_segment_core(ep: ptr<function, array<f32, 24>>, mask: u32, channels: u32) {
     var axis: array<f32, 4>;
     var dc: array<f32, 4>;
     block_pca_axis(&axis, &dc, mask, channels);
@@ -593,7 +601,7 @@ fn block_segment_core(ep: ptr<function, array<f32, 8>>, mask: u32, channels: u32
     }
 }
 
-fn block_segment(ep: ptr<function, array<f32, 8>>, mask: u32, channels: u32) {
+fn block_segment(ep: ptr<function, array<f32, 24>>, mask: u32, channels: u32) {
     block_segment_core(ep, mask, channels);
 
     for (var i = 0u; i < 2u; i++) {
@@ -603,12 +611,12 @@ fn block_segment(ep: ptr<function, array<f32, 8>>, mask: u32, channels: u32) {
     }
 }
 
-fn partial_sort_list(list: ptr<function, array<u32, 64>>, length: u32, partial_count: u32) {
-    for (var k = 0u; k < partial_count; k++) {
-        var best_idx = k;
+fn partial_sort_list(list: ptr<function, array<i32, 64>>, length: i32, partial_count: i32) {
+    for (var k = 0; k < partial_count; k++) {
+        var best_idx = i32(k);
         var best_value = (*list)[k];
 
-        for (var i = k + 1u; i < length; i++) {
+        for (var i = k + 1; i < length; i++) {
             if (best_value > (*list)[i]) {
                 best_value = (*list)[i];
                 best_idx = i;
@@ -744,6 +752,22 @@ fn bc7_code_adjust_skip_mode01237(mode: u32, part_id: i32) {
     }
 }
 
+fn bc7_code_apply_swap_mode456(qep: ptr<function, array<i32, 24>>, channels: u32, qblock: ptr<function, array<u32, 2>>, bits: u32) {
+    let levels = 1u << bits;
+
+    if (((*qblock)[0] & 15u) >= levels / 2u) {
+        for (var p = 0u; p < channels; p++) {
+            let temp = (*qep)[p];
+            (*qep)[p] = (*qep)[channels + p];
+            (*qep)[channels + p] = temp;
+        }
+
+        for (var k = 0u; k < 2u; k++) {
+            (*qblock)[k] = (0x11111111u * (levels - 1u)) - (*qblock)[k];
+        }
+    }
+}
+
 fn bc7_code_apply_swap_mode01237(qep: ptr<function, array<i32, 24>>, qblock: array<u32, 2>, mode: u32, part_id: i32) -> u32 {
     let bits = select(2u, 3u, mode == 0u || mode == 1u);
     let pairs = select(2u, 3u, mode == 0u || mode == 2u);
@@ -831,6 +855,31 @@ fn bc7_code_mode01237(qep: ptr<function, array<i32, 24>>, qblock: array<u32, 2>,
     bc7_code_adjust_skip_mode01237(mode, part_id);
 }
 
+fn bc7_code_mode6(qep: ptr<function, array<i32, 24>>, qblock: ptr<function, array<u32, 2>>) {
+    bc7_code_apply_swap_mode456(qep, 4u, qblock, 4u);
+
+    for (var k = 0u; k < 5u; k++) {
+        state.data[k] = 0u;
+    }
+    var pos = 0u;
+
+    // Mode 6
+    put_bits(&pos, 7u, 64u);
+
+    // Endpoints
+    for (var p = 0u; p < 4u; p++) {
+        put_bits(&pos, 7u, u32((*qep)[0u + p]) >> 1u);
+        put_bits(&pos, 7u, u32((*qep)[4u + p]) >> 1u);
+    }
+
+    // P bits
+    put_bits(&pos, 1u, u32((*qep)[0]) & 1u);
+    put_bits(&pos, 1u, u32((*qep)[4]) & 1u);
+
+    // Quantized values
+    bc7_code_qblock(&pos, *qblock, 4u, 0u);
+}
+
 fn bc7_enc_mode01237_part_fast(qep: ptr<function, array<i32, 24>>, qblock: ptr<function, array<u32, 2>>, part_id: i32, mode: u32) -> f32 {
     let pattern = get_pattern(part_id);
     let bits = select(2u, 3u, mode == 0u || mode == 1u);
@@ -840,14 +889,7 @@ fn bc7_enc_mode01237_part_fast(qep: ptr<function, array<i32, 24>>, qblock: ptr<f
     var ep: array<f32, 24>;
     for (var j = 0u; j < pairs; j++) {
         let mask = get_pattern_mask(part_id, j);
-
-        // TODO: NHA can we remove this copy by maybe creating a second block_segment function that takes a 24 array with offset?
-        var temp_ep: array<f32, 8>;
-        block_segment(&temp_ep, mask, channels);
-
-        for (var k = 0u; k < 8u; k++) {
-            ep[j * 8u + k] = temp_ep[k];
-        }
+        block_segment(&ep, mask, channels);
     }
 
     ep_quant_dequant(qep, &ep, mode, channels);
@@ -941,22 +983,92 @@ fn bc7_enc_mode02() {
     }
 }
 
+fn bc7_enc_mode13() {
+    if (settings.fast_skip_threshold_mode1 == 0u && settings.fast_skip_threshold_mode3 == 0u) {
+        return;
+    }
+
+    var full_stats = compute_stats_masked(0xFFFFFFFFu, 3u);
+
+    var part_list: array<i32, 64>;
+    for (var part = 0; part < 64; part++) {
+        let mask = get_pattern_mask(part, 0u);
+        let bound12 = block_pca_bound_split(mask, full_stats, 3u);
+        let bound = i32(bound12);
+        part_list[part] = part + bound * 64;
+    }
+
+    let partial_count = max(settings.fast_skip_threshold_mode1, settings.fast_skip_threshold_mode3);
+    partial_sort_list(&part_list, 64, i32(partial_count));
+    bc7_enc_mode01237(1u, part_list, settings.fast_skip_threshold_mode1);
+    bc7_enc_mode01237(3u, part_list, settings.fast_skip_threshold_mode3);
+}
+
+fn bc7_enc_mode6() {
+    const mode = 6u;
+    const bits = 4u;
+
+    var ep: array<f32, 24>;
+    block_segment(&ep, 0xFFFFFFFFu, settings.channels);
+
+    if (settings.channels == 3u) {
+        ep[3] = 255.0;
+        ep[7] = 255.0;
+    }
+
+    var qep: array<i32, 24>;
+    ep_quant_dequant(&qep, &ep, mode, settings.channels);
+
+    var qblock: array<u32, 2>;
+    var err = block_quant(&qblock, bits, &ep, 0u, settings.channels);
+
+    let refine_iterations = settings.refine_iterations[mode];
+    for (var i = 0u; i < refine_iterations; i++) {
+        opt_endpoints(&ep, 0u, bits, qblock, 0xFFFFFFFFu, settings.channels);
+        ep_quant_dequant(&qep, &ep, mode, settings.channels);
+        err = block_quant(&qblock, bits, &ep, 0u, settings.channels);
+    }
+
+    if (err < state.best_err) {
+        state.best_err = err;
+        bc7_code_mode6(&qep, &qblock);
+    }
+}
+
+fn bc7_enc_mode7() {
+    if (settings.fast_skip_threshold_mode7 == 0u) {
+        return;
+    }
+
+    var full_stats = compute_stats_masked(0xFFFFFFFFu, settings.channels);
+
+    var part_list: array<i32, 64>;
+    for (var part = 0; part < 64; part++) {
+        let mask = get_pattern_mask(part, 0u);
+        let bound12 = block_pca_bound_split(mask, full_stats, settings.channels);
+        let bound = i32(bound12);
+        part_list[part] = part + bound * 64;
+    }
+
+    let partial_count = settings.fast_skip_threshold_mode7;
+    partial_sort_list(&part_list, 64, i32(partial_count));
+    bc7_enc_mode01237(7u, part_list, settings.fast_skip_threshold_mode7);
+}
+
 fn compress_block_bc7_core() {
     if (settings.mode_selection[0] != 0u) {
         bc7_enc_mode02();
     }
     if (settings.mode_selection[1] != 0u) {
-        // TODO
-        //bc7_enc_mode13();
-        //bc7_enc_mode7();
+        bc7_enc_mode13();
+        bc7_enc_mode7();
     }
     if (settings.mode_selection[2] != 0u) {
         // TODO
         //bc7_enc_mode45();
     }
     if (settings.mode_selection[3] != 0u) {
-        // TODO
-        //bc7_enc_mode6();
+        bc7_enc_mode6();
     }
 }
 
