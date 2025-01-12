@@ -43,6 +43,16 @@ pub enum CompressionVariant {
 }
 
 impl CompressionVariant {
+    /// Returns the bytes per row for the given width.
+    ///
+    /// The width is used to calculate how many blocks are needed per row,
+    /// which is then multiplied by the block size.
+    /// Width is rounded up to the nearest multiple of 4.
+    pub fn bytes_per_row(self, width: u32) -> u32 {
+        let blocks_per_row = (width + 3) / 4;
+        blocks_per_row * self.block_byte_size()
+    }
+
     /// Returns the byte size required for storing compressed blocks for the given dimensions.
     ///
     /// The size is calculated based on the block compression format and rounded up dimensions.
