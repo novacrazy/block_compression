@@ -53,8 +53,6 @@ struct Mode45Parameters {
 @group(0) @binding(2) var<uniform> uniforms: Uniforms;
 @group(0) @binding(3) var<storage, read> settings: Settings;
 
-var<private> state: State;
-
 fn sq(x: f32) -> f32 {
     return x * x;
 }
@@ -82,13 +80,13 @@ fn load_block_interleaved_rgba(block: ptr<function, array<f32, 64>>, xx: u32, yy
     }
 }
 
-fn store_data(block_width: u32, xx: u32, yy: u32) {
+fn store_data(state: ptr<function, State>, block_width: u32, xx: u32, yy: u32) {
     let offset = uniforms.blocks_offset + (yy * block_width * 4u + xx * 4u);
 
-    block_buffer[offset + 0] = state.data[0];
-    block_buffer[offset + 1] = state.data[1];
-    block_buffer[offset + 2] = state.data[2];
-    block_buffer[offset + 3] = state.data[3];
+    block_buffer[offset + 0] = (*state).data[0];
+    block_buffer[offset + 1] = (*state).data[1];
+    block_buffer[offset + 2] = (*state).data[2];
+    block_buffer[offset + 3] = (*state).data[3];
 }
 
 fn get_unquant_value(bits: u32, index: i32) -> i32 {
@@ -739,26 +737,26 @@ fn partial_sort_list(list: ptr<function, array<i32, 64>>, length: i32, partial_c
     }
 }
 
-fn put_bits(pos: ptr<function, u32>, bits: u32, v: u32) {
-    state.data[(*pos) / 32u] |= v << ((*pos) % 32u);
+fn put_bits(state: ptr<function, State>, pos: ptr<function, u32>, bits: u32, v: u32) {
+    (*state).data[(*pos) / 32u] |= v << ((*pos) % 32u);
     if ((*pos) % 32u + bits > 32u) {
-        state.data[(*pos) / 32u + 1u] |= v >> (32u - (*pos) % 32u);
+        (*state).data[(*pos) / 32u + 1u] |= v >> (32u - (*pos) % 32u);
     }
     *pos += bits;
 }
 
-fn data_shl_1bit_from(from_bits: u32) {
+fn data_shl_1bit_from(state: ptr<function, State>, from_bits: u32) {
     if (from_bits < 96u) {
-        let shifted = (state.data[2] >> 1u) | (state.data[3] << 31u);
+        let shifted = ((*state).data[2] >> 1u) | ((*state).data[3] << 31u);
         let mask = ((1u << (from_bits - 64u)) - 1u) >> 1u;
-        state.data[2] = (mask & state.data[2]) | (~mask & shifted);
-        state.data[3] = (state.data[3] >> 1u) | (state.data[4] << 31u);
-        state.data[4] = state.data[4] >> 1u;
+        (*state).data[2] = (mask & (*state).data[2]) | (~mask & shifted);
+        (*state).data[3] = ((*state).data[3] >> 1u) | ((*state).data[4] << 31u);
+        (*state).data[4] = (*state).data[4] >> 1u;
     } else if (from_bits < 128u) {
-        let shifted = (state.data[3] >> 1u) | (state.data[4] << 31u);
+        let shifted = ((*state).data[3] >> 1u) | ((*state).data[4] << 31u);
         let mask = ((1u << (from_bits - 96u)) - 1u) >> 1u;
-        state.data[3] = (mask & state.data[3]) | (~mask & shifted);
-        state.data[4] = state.data[4] >> 1u;
+        (*state).data[3] = (mask & (*state).data[3]) | (~mask & shifted);
+        (*state).data[4] = (*state).data[4] >> 1u;
     }
 }
 
@@ -821,7 +819,7 @@ fn opt_endpoints(ep: ptr<function, array<f32, 24>>, offset: u32, block: ptr<func
     }
 }
 
-fn bc7_code_qblock(qpos: ptr<function, u32>, qblock: array<u32, 2>, bits: u32, flips: u32) {
+fn bc7_code_qblock(state: ptr<function, State>, qpos: ptr<function, u32>, qblock: array<u32, 2>, bits: u32, flips: u32) {
     let levels = 1u << bits;
     var flips_shifted = flips;
 
@@ -834,9 +832,9 @@ fn bc7_code_qblock(qpos: ptr<function, u32>, qblock: array<u32, 2>, bits: u32, f
             }
 
             if (k1 == 0u && k2 == 0u) {
-                put_bits(qpos, bits - 1u, q);
+                put_bits(state, qpos, bits - 1u, q);
             } else {
-                put_bits(qpos, bits, q);
+                put_bits(state, qpos, bits, q);
             }
             qbits_shifted >>= 4u;
             flips_shifted >>= 1u;
@@ -844,7 +842,7 @@ fn bc7_code_qblock(qpos: ptr<function, u32>, qblock: array<u32, 2>, bits: u32, f
     }
 }
 
-fn bc7_code_adjust_skip_mode01237(mode: u32, part_id: i32) {
+fn bc7_code_adjust_skip_mode01237(state: ptr<function, State>, mode: u32, part_id: i32) {
     let pairs = select(2u, 3u, mode == 0u || mode == 2u);
     let bits = select(2u, 3u, mode == 0u || mode == 1u);
 
@@ -858,7 +856,7 @@ fn bc7_code_adjust_skip_mode01237(mode: u32, part_id: i32) {
 
     for (var j = 1u; j < pairs; j++) {
         let k = skips[j];
-        data_shl_1bit_from(128u + (pairs - 1u) - (15u - k) * bits);
+        data_shl_1bit_from(state, 128u + (pairs - 1u) - (15u - k) * bits);
     }
 }
 
@@ -907,7 +905,7 @@ fn bc7_code_apply_swap_mode01237(qep: ptr<function, array<i32, 24>>, qblock: arr
     return flips;
 }
 
-fn bc7_code_mode01237(qep: ptr<function, array<i32, 24>>, qblock: array<u32, 2>, part_id: i32, mode: u32) {
+fn bc7_code_mode01237(state: ptr<function, State>, qep: ptr<function, array<i32, 24>>, qblock: array<u32, 2>, part_id: i32, mode: u32) {
     let bits = select(2u, 3u, mode == 0u || mode == 1u);
     let pairs = select(2u, 3u, mode == 0u || mode == 2u);
     let channels = select(3u, 4u, mode == 7u);
@@ -915,34 +913,34 @@ fn bc7_code_mode01237(qep: ptr<function, array<i32, 24>>, qblock: array<u32, 2>,
     let flips = bc7_code_apply_swap_mode01237(qep, qblock, mode, part_id);
 
     for (var k = 0u; k < 5u; k++) {
-        state.data[k] = 0u;
+        (*state).data[k] = 0u;
     }
 
     var pos = 0u;
 
     // Mode 0-3, 7
-    put_bits(&pos, mode + 1u, 1u << mode);
+    put_bits(state, &pos, mode + 1u, 1u << mode);
 
     // Partition
     if (mode == 0u) {
-        put_bits(&pos, 4u, u32(part_id & 15));
+        put_bits(state, &pos, 4u, u32(part_id & 15));
     } else {
-        put_bits(&pos, 6u, u32(part_id & 63));
+        put_bits(state, &pos, 6u, u32(part_id & 63));
     }
 
     // Endpoints
     for (var p = 0u; p < channels; p++) {
         for (var j = 0u; j < pairs * 2u; j++) {
             if (mode == 0u) {
-                put_bits(&pos, 4u, u32((*qep)[j * 4u + p]) >> 1u);
+                put_bits(state, &pos, 4u, u32((*qep)[j * 4u + p]) >> 1u);
             } else if (mode == 1u) {
-                put_bits(&pos, 6u, u32((*qep)[j * 4u + p]) >> 1u);
+                put_bits(state, &pos, 6u, u32((*qep)[j * 4u + p]) >> 1u);
             } else if (mode == 2u) {
-                put_bits(&pos, 5u, u32((*qep)[j * 4u + p]));
+                put_bits(state, &pos, 5u, u32((*qep)[j * 4u + p]));
             } else if (mode == 3u) {
-                put_bits(&pos, 7u, u32((*qep)[j * 4u + p]) >> 1u);
+                put_bits(state, &pos, 7u, u32((*qep)[j * 4u + p]) >> 1u);
             } else if (mode == 7u) {
-                put_bits(&pos, 5u, u32((*qep)[j * 4u + p]) >> 1u);
+                put_bits(state, &pos, 5u, u32((*qep)[j * 4u + p]) >> 1u);
             }
         }
     }
@@ -950,44 +948,44 @@ fn bc7_code_mode01237(qep: ptr<function, array<i32, 24>>, qblock: array<u32, 2>,
     // P bits
     if (mode == 1u) {
         for (var j = 0u; j < 2u; j++) {
-            put_bits(&pos, 1u, u32((*qep)[j * 8u]) & 1u);
+            put_bits(state, &pos, 1u, u32((*qep)[j * 8u]) & 1u);
         }
     }
 
     if (mode == 0u || mode == 3u || mode == 7u) {
         for (var j = 0u; j < pairs * 2u; j++) {
-            put_bits(&pos, 1u, u32((*qep)[j * 4u]) & 1u);
+            put_bits(state, &pos, 1u, u32((*qep)[j * 4u]) & 1u);
         }
     }
 
     // Quantized values
-    bc7_code_qblock(&pos, qblock, bits, flips);
-    bc7_code_adjust_skip_mode01237(mode, part_id);
+    bc7_code_qblock(state, &pos, qblock, bits, flips);
+    bc7_code_adjust_skip_mode01237(state, mode, part_id);
 }
 
-fn bc7_code_mode6(qep: ptr<function, array<i32, 24>>, qblock: ptr<function, array<u32, 2>>) {
+fn bc7_code_mode6(state: ptr<function, State>, qep: ptr<function, array<i32, 24>>, qblock: ptr<function, array<u32, 2>>) {
     bc7_code_apply_swap_mode456(qep, 4u, qblock, 4u);
 
     for (var k = 0u; k < 5u; k++) {
-        state.data[k] = 0u;
+        (*state).data[k] = 0u;
     }
     var pos = 0u;
 
     // Mode 6
-    put_bits(&pos, 7u, 64u);
+    put_bits(state, &pos, 7u, 64u);
 
     // Endpoints
     for (var p = 0u; p < 4u; p++) {
-        put_bits(&pos, 7u, u32((*qep)[0u + p]) >> 1u);
-        put_bits(&pos, 7u, u32((*qep)[4u + p]) >> 1u);
+        put_bits(state, &pos, 7u, u32((*qep)[0u + p]) >> 1u);
+        put_bits(state, &pos, 7u, u32((*qep)[4u + p]) >> 1u);
     }
 
     // P bits
-    put_bits(&pos, 1u, u32((*qep)[0]) & 1u);
-    put_bits(&pos, 1u, u32((*qep)[4]) & 1u);
+    put_bits(state, &pos, 1u, u32((*qep)[0]) & 1u);
+    put_bits(state, &pos, 1u, u32((*qep)[4]) & 1u);
 
     // Quantized values
-    bc7_code_qblock(&pos, *qblock, 4u, 0u);
+    bc7_code_qblock(state, &pos, *qblock, 4u, 0u);
 }
 
 fn bc7_enc_mode01237_part_fast(qep: ptr<function, array<i32, 24>>, qblock: ptr<function, array<u32, 2>>, block: ptr<function, array<f32, 64>>, part_id: i32, mode: u32) -> f32 {
@@ -1007,7 +1005,7 @@ fn bc7_enc_mode01237_part_fast(qep: ptr<function, array<i32, 24>>, qblock: ptr<f
     return block_quant(qblock, block, bits, &ep, pattern, channels);
 }
 
-fn bc7_enc_mode01237(block: ptr<function, array<f32, 64>>, mode: u32, part_list: array<i32, 64>, part_count: u32) {
+fn bc7_enc_mode01237(state: ptr<function, State>, block: ptr<function, array<f32, 64>>, mode: u32, part_list: array<i32, 64>, part_count: u32) {
     if (part_count == 0u) {
         return;
     }
@@ -1071,29 +1069,29 @@ fn bc7_enc_mode01237(block: ptr<function, array<f32, 64>>, mode: u32, part_list:
     }
 
     if (mode != 7u) {
-        best_err += state.opaque_err;
+        best_err += (*state).opaque_err;
     }
 
-    if (best_err < state.best_err) {
-        state.best_err = best_err;
-        bc7_code_mode01237(&best_qep, best_qblock, best_part_id, mode);
+    if (best_err < (*state).best_err) {
+        (*state).best_err = best_err;
+        bc7_code_mode01237(state, &best_qep, best_qblock, best_part_id, mode);
     }
 }
 
-fn bc7_enc_mode02(block: ptr<function, array<f32, 64>>) {
+fn bc7_enc_mode02(state: ptr<function, State>, block: ptr<function, array<f32, 64>>) {
     var part_list: array<i32, 64>;
     for (var part = 0; part < 64; part++) {
         part_list[part] = part;
     }
 
-    bc7_enc_mode01237(block, 0u, part_list, 16u);
+    bc7_enc_mode01237(state, block, 0u, part_list, 16u);
 
     if (settings.skip_mode2 == 0) {
-        bc7_enc_mode01237(block, 2u, part_list, 64u);
+        bc7_enc_mode01237(state, block, 2u, part_list, 64u);
     }
 }
 
-fn bc7_enc_mode13(block: ptr<function, array<f32, 64>>) {
+fn bc7_enc_mode13(state: ptr<function, State>, block: ptr<function, array<f32, 64>>) {
     if (settings.fast_skip_threshold_mode1 == 0u && settings.fast_skip_threshold_mode3 == 0u) {
         return;
     }
@@ -1110,8 +1108,8 @@ fn bc7_enc_mode13(block: ptr<function, array<f32, 64>>) {
 
     let partial_count = max(settings.fast_skip_threshold_mode1, settings.fast_skip_threshold_mode3);
     partial_sort_list(&part_list, 64, i32(partial_count));
-    bc7_enc_mode01237(block, 1u, part_list, settings.fast_skip_threshold_mode1);
-    bc7_enc_mode01237(block, 3u, part_list, settings.fast_skip_threshold_mode3);
+    bc7_enc_mode01237(state, block, 1u, part_list, settings.fast_skip_threshold_mode1);
+    bc7_enc_mode01237(state, block, 3u, part_list, settings.fast_skip_threshold_mode3);
 }
 
 fn bc7_enc_mode45_candidate(best_candidate: ptr<function, Mode45Parameters>, best_err: ptr<function, f32>, block: ptr<function, array<f32, 64>>, mode: u32, rotation: u32, swap: u32) {
@@ -1191,9 +1189,9 @@ fn bc7_enc_mode45_candidate(best_candidate: ptr<function, Mode45Parameters>, bes
     }
 }
 
-fn bc7_enc_mode45(block: ptr<function, array<f32, 64>>) {
+fn bc7_enc_mode45(state: ptr<function, State>, block: ptr<function, array<f32, 64>>) {
     var best_candidate: Mode45Parameters;
-    var best_err = state.best_err;
+    var best_err = (*state).best_err;
 
     let channel0 = settings.mode45_channel0;
     for (var p = channel0; p < settings.channels; p++) {
@@ -1202,8 +1200,8 @@ fn bc7_enc_mode45(block: ptr<function, array<f32, 64>>) {
     }
 
     // Mode 4
-    if (best_err < state.best_err) {
-        state.best_err = best_err;
+    if (best_err < (*state).best_err) {
+        (*state).best_err = best_err;
         // TODO
         // bc7_code_mode45(&best_candidate, 4u);
     }
@@ -1213,14 +1211,14 @@ fn bc7_enc_mode45(block: ptr<function, array<f32, 64>>) {
     }
 
     // Mode 5
-    if (best_err < state.best_err) {
-        state.best_err = best_err;
+    if (best_err < (*state).best_err) {
+        (*state).best_err = best_err;
         // TODO
         // bc7_code_mode45(&best_candidate, 5u);
     }
 }
 
-fn bc7_enc_mode6(block: ptr<function, array<f32, 64>>) {
+fn bc7_enc_mode6(state: ptr<function, State>, block: ptr<function, array<f32, 64>>) {
     const mode = 6u;
     const bits = 4u;
 
@@ -1245,13 +1243,13 @@ fn bc7_enc_mode6(block: ptr<function, array<f32, 64>>) {
         err = block_quant(&qblock, block, bits, &ep, 0u, settings.channels);
     }
 
-    if (err < state.best_err) {
-        state.best_err = err;
-        bc7_code_mode6(&qep, &qblock);
+    if (err < (*state).best_err) {
+        (*state).best_err = err;
+        bc7_code_mode6(state, &qep, &qblock);
     }
 }
 
-fn bc7_enc_mode7(block: ptr<function, array<f32, 64>>) {
+fn bc7_enc_mode7(state: ptr<function, State>, block: ptr<function, array<f32, 64>>) {
     if (settings.fast_skip_threshold_mode7 == 0u) {
         return;
     }
@@ -1268,22 +1266,22 @@ fn bc7_enc_mode7(block: ptr<function, array<f32, 64>>) {
 
     let partial_count = settings.fast_skip_threshold_mode7;
     partial_sort_list(&part_list, 64, i32(partial_count));
-    bc7_enc_mode01237(block, 7u, part_list, settings.fast_skip_threshold_mode7);
+    bc7_enc_mode01237(state, block, 7u, part_list, settings.fast_skip_threshold_mode7);
 }
 
-fn compress_block_bc7_core(block: ptr<function, array<f32, 64>>) {
+fn compress_block_bc7_core(state: ptr<function, State>, block: ptr<function, array<f32, 64>>) {
     if (settings.mode_selection[0] != 0u) {
-        bc7_enc_mode02(block);
+        bc7_enc_mode02(state, block);
     }
     if (settings.mode_selection[1] != 0u) {
-        bc7_enc_mode13(block);
-        bc7_enc_mode7(block);
+        bc7_enc_mode13(state,block);
+        bc7_enc_mode7(state, block);
     }
     if (settings.mode_selection[2] != 0u) {
-        bc7_enc_mode45(block);
+        bc7_enc_mode45(state, block);
     }
     if (settings.mode_selection[3] != 0u) {
-        bc7_enc_mode6(block);
+        bc7_enc_mode6(state, block);
     }
 }
 
@@ -1316,10 +1314,11 @@ fn compress_bc7(@builtin(global_invocation_id) global_id: vec3<u32>) {
 
     load_block_interleaved_rgba(&block, xx, yy);
 
+    var state: State;
     state.best_err = 3.40282347e38;
     state.opaque_err = compute_opaque_err(&block);
 
-    compress_block_bc7_core(&block);
+    compress_block_bc7_core(&state, &block);
 
-    store_data(block_width, xx, yy);
+    store_data(&state, block_width, xx, yy);
 }
