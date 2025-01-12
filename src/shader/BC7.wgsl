@@ -44,8 +44,8 @@ struct Mode45Parameters {
     qblock: array<u32, 2>,
     aqep: array<i32, 2>,
     aqblock: array<u32, 2>,
-    rotation: i32,
-    swap: i32,
+    rotation: u32,
+    swap: u32,
 }
 
 @group(0) @binding(0) var source_texture: texture_2d<f32>;
@@ -963,6 +963,72 @@ fn bc7_code_mode01237(state: ptr<function, State>, qep: ptr<function, array<i32,
     bc7_code_adjust_skip_mode01237(state, mode, part_id);
 }
 
+fn bc7_code_mode45(state: ptr<function, State>, params: ptr<function, Mode45Parameters>, mode: u32) {
+    var qep: array<i32, 24>;
+    var qblock: array<u32, 2>;
+    var aqep: array<i32, 24>;
+    var aqblock: array<u32, 2>;
+
+    for (var i = 0u; i < 8u; i++) {
+        qep[i] = (*params).qep[i];
+    }
+    for (var i = 0u; i < 2u; i++) {
+        qblock[i] = (*params).qblock[i];
+        aqep[i] = (*params).aqep[i];
+        aqblock[i] = (*params).aqblock[i];
+    }
+    let rotation = (*params).rotation;
+    let swap = (*params).swap;
+
+    let bits = 2u;
+    let abits = select(2u, 3u, mode == 4u);
+    let epbits = select(7u, 5u, mode == 4u);
+    let aepbits = select(8u, 6u, mode == 4u);
+
+    if (swap == 0) {
+        bc7_code_apply_swap_mode456(&qep, 4u, &qblock, bits);
+        bc7_code_apply_swap_mode456(&aqep, 1u, &aqblock, abits);
+    } else {
+        // Swap qblock and aqblock
+        let temp_block = qblock;
+        qblock = aqblock;
+        aqblock = temp_block;
+
+        bc7_code_apply_swap_mode456(&aqep, 1u, &qblock, bits);
+        bc7_code_apply_swap_mode456(&qep, 4u, &aqblock, abits);
+    }
+
+    // Clear state data
+    for (var k = 0u; k < 5u; k++) {
+        (*state).data[k] = 0u;
+    }
+    var pos = 0u;
+
+    // Mode 4-5
+    put_bits(state, &pos, mode + 1u, 1u << mode);
+
+    // Rotation
+    put_bits(state, &pos, 2u, (rotation + 1u) & 3u);
+
+    if (mode == 4u) {
+        put_bits(state, &pos, 1u, swap);
+    }
+
+    // Endpoints
+    for (var p = 0u; p < 3u; p++) {
+        put_bits(state, &pos, epbits, u32(qep[0u + p]));
+        put_bits(state, &pos, epbits, u32(qep[4u + p]));
+    }
+
+    // Alpha endpoints
+    put_bits(state, &pos, aepbits, u32(aqep[0]));
+    put_bits(state, &pos, aepbits, u32(aqep[1]));
+
+    // Quantized values
+    bc7_code_qblock(state, &pos, qblock, bits, 0u);
+    bc7_code_qblock(state, &pos, aqblock, abits, 0u);
+}
+
 fn bc7_code_mode6(state: ptr<function, State>, qep: ptr<function, array<i32, 24>>, qblock: ptr<function, array<u32, 2>>) {
     bc7_code_apply_swap_mode456(qep, 4u, qblock, 4u);
 
@@ -1183,8 +1249,8 @@ fn bc7_enc_mode45_candidate(best_candidate: ptr<function, Mode45Parameters>, bes
             (*best_candidate).aqblock[i] = aqblock[i];
             (*best_candidate).aqep[i] = aqep[i];
         }
-        (*best_candidate).rotation = i32(rotation);
-        (*best_candidate).swap = i32(swap);
+        (*best_candidate).rotation = rotation;
+        (*best_candidate).swap = swap;
         *best_err = err;
     }
 }
@@ -1202,8 +1268,7 @@ fn bc7_enc_mode45(state: ptr<function, State>, block: ptr<function, array<f32, 6
     // Mode 4
     if (best_err < (*state).best_err) {
         (*state).best_err = best_err;
-        // TODO
-        // bc7_code_mode45(&best_candidate, 4u);
+        bc7_code_mode45(state, &best_candidate, 4u);
     }
 
     for (var p = channel0; p < settings.channels; p++) {
@@ -1213,8 +1278,7 @@ fn bc7_enc_mode45(state: ptr<function, State>, block: ptr<function, array<f32, 6
     // Mode 5
     if (best_err < (*state).best_err) {
         (*state).best_err = best_err;
-        // TODO
-        // bc7_code_mode45(&best_candidate, 5u);
+        bc7_code_mode45(state, &best_candidate, 5u);
     }
 }
 

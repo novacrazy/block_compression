@@ -12,11 +12,11 @@
 //!  * BC3
 //!  * BC4
 //!  * BC5
+//!  * BC7
 //!
 //! Soon:
 //!
 //!  * BC6H
-//!  * BC7
 mod block_compressor;
 mod settings;
 
