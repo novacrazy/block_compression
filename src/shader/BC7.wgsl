@@ -611,6 +611,117 @@ fn block_segment(ep: ptr<function, array<f32, 24>>, mask: u32, channels: u32) {
     }
 }
 
+fn opt_channel(qblock: ptr<function, array<u32, 2>>, qep: ptr<function, array<i32, 2>>, channel_block: ptr<function, array<f32, 16>>, bits: u32, epbits: u32) -> f32 {
+    var ep: array<f32, 2> = array<f32, 2>(255.0, 0.0);
+
+    for (var k = 0u; k < 16u; k++) {
+        ep[0] = min(ep[0], (*channel_block)[k]);
+        ep[1] = max(ep[1], (*channel_block)[k]);
+    }
+
+    channel_quant_dequant(qep, &ep, epbits);
+    var err = channel_opt_quant(qblock, channel_block, bits, &ep);
+
+    // Refine
+    let refine_iterations = settings.refine_iterations_channel;
+    for (var i = 0u; i < refine_iterations; i++) {
+        channel_opt_endpoints(&ep, channel_block, bits, *qblock);
+        channel_quant_dequant(qep, &ep, epbits);
+        err = channel_opt_quant(qblock, channel_block, bits, &ep);
+    }
+
+    return err;
+}
+
+fn channel_quant_dequant(qep: ptr<function, array<i32, 2>>, ep: ptr<function, array<f32, 2>>, epbits: u32) {
+    let elevels = i32(1u << epbits);
+
+    for (var i = 0u; i < 2u; i++) {
+        let v = i32((*ep)[i] / 255.0 * f32(elevels - 1) + 0.5);
+        (*qep)[i] = clamp(v, 0, elevels - 1);
+        (*ep)[i] = f32(unpack_to_byte((*qep)[i], epbits));
+    }
+}
+
+fn channel_opt_quant(qblock: ptr<function, array<u32, 2>>, block: ptr<function, array<f32, 16>>, bits: u32, ep: ptr<function, array<f32, 2>>) -> f32 {
+    let levels = i32(1u << bits);
+
+    (*qblock)[0] = 0u;
+    (*qblock)[1] = 0u;
+
+    var total_err = 0.0;
+
+    for (var k = 0u; k < 16u; k++) {
+        let proj = ((*block)[k] - (*ep)[0]) / ((*ep)[1] - (*ep)[0] + 0.001);
+
+        let q1 = i32(proj * f32(levels) + 0.5);
+        let q1_clamped = clamp(q1, 1, levels - 1);
+
+        var err0 = 0.0;
+        var err1 = 0.0;
+        let w0 = get_unquant_value(bits, q1_clamped - 1);
+        let w1 = get_unquant_value(bits, q1_clamped);
+
+        let dec_v0 = f32(((64 - w0) * i32((*ep)[0]) + w0 * i32((*ep)[1]) + 32) / 64);
+        let dec_v1 = f32(((64 - w1) * i32((*ep)[0]) + w1 * i32((*ep)[1]) + 32) / 64);
+        err0 += sq(dec_v0 - (*block)[k]);
+        err1 += sq(dec_v1 - (*block)[k]);
+
+        let best_err = select(err1, err0, err0 < err1);
+        let best_q = select(q1_clamped, q1_clamped - 1, err0 < err1);
+
+        (*qblock)[k / 8u] |= u32(best_q) << (4u * (k % 8u));
+        total_err += best_err;
+    }
+
+    return total_err;
+}
+
+fn channel_opt_endpoints(ep: ptr<function, array<f32, 2>>, block: ptr<function, array<f32, 16>>, bits: u32, qblock: array<u32, 2>) {
+    let levels = i32(1u << bits);
+
+    var Atb1 = 0.0;
+    var sum_q = 0.0;
+    var sum_qq = 0.0;
+    var sum = 0.0;
+
+    for (var k1 = 0u; k1 < 2u; k1++) {
+        var qbits_shifted = qblock[k1];
+        for (var k2 = 0u; k2 < 8u; k2++) {
+            let k = k1 * 8u + k2;
+            let q = f32(qbits_shifted & 15u);
+            qbits_shifted >>= 4u;
+
+            let x = f32(levels - 1) - q;
+            let y = q;
+
+            sum_q += q;
+            sum_qq += q * q;
+
+            sum += (*block)[k];
+            Atb1 += x * (*block)[k];
+        }
+    }
+
+    let Atb2 = f32(levels - 1) * sum - Atb1;
+
+    let Cxx = 16.0 * sq(f32(levels - 1)) - 2.0 * f32(levels - 1) * sum_q + sum_qq;
+    let Cyy = sum_qq;
+    let Cxy = f32(levels - 1) * sum_q - sum_qq;
+    let scale = f32(levels - 1) / (Cxx * Cyy - Cxy * Cxy);
+
+    (*ep)[0] = (Atb1 * Cyy - Atb2 * Cxy) * scale;
+    (*ep)[1] = (Atb2 * Cxx - Atb1 * Cxy) * scale;
+
+    (*ep)[0] = clamp((*ep)[0], 0.0, 255.0);
+    (*ep)[1] = clamp((*ep)[1], 0.0, 255.0);
+
+    if (abs(Cxx * Cyy - Cxy * Cxy) < 0.001) {
+        (*ep)[0] = sum / 16.0;
+        (*ep)[1] = (*ep)[0];
+    }
+}
+
 fn partial_sort_list(list: ptr<function, array<i32, 64>>, length: i32, partial_count: i32) {
     for (var k = 0; k < partial_count; k++) {
         var best_idx = i32(k);
@@ -1004,6 +1115,115 @@ fn bc7_enc_mode13() {
     bc7_enc_mode01237(3u, part_list, settings.fast_skip_threshold_mode3);
 }
 
+fn bc7_enc_mode45_candidate(best_candidate: ptr<function, Mode45Parameters>, best_err: ptr<function, f32>, mode: u32, rotation: u32, swap: u32) {
+    var bits = 2u;
+    var abits = 2u;
+    var aepbits = 8u;
+
+    if (mode == 4u) {
+        abits = 3u;
+        aepbits = 6u;
+    }
+
+    // (mode 4)
+    if (swap == 1u) {
+        bits = 3u;
+        abits = 2u;
+    }
+
+    var temp_block: array<f32, 48>;
+    for (var k = 0u; k < 16u; k++) {
+        for (var p = 0u; p < 3u; p++) {
+            temp_block[k + p * 16u] = block[k + p * 16u];
+        }
+
+        if (rotation < 3u) {
+            // Apply channel rotation
+            if (settings.channels == 4u) {
+                temp_block[k + rotation * 16u] = block[k + 3u * 16u];
+            }
+            if (settings.channels == 3u) {
+                temp_block[k + rotation * 16u] = 255.0;
+            }
+        }
+    }
+
+    var ep: array<f32, 24>;
+    // TODO: This must use the temp_block!
+    block_segment(&ep, 0xFFFFFFFFu, 3u);
+
+    var qep: array<i32, 24>;
+    ep_quant_dequant(&qep, &ep, mode, 3u);
+
+    var qblock: array<u32, 2>;
+    // TODO: This must use the temp_block!
+    var err = block_quant(&qblock, bits, &ep, 0u, 3u);
+
+    // Refine
+    let refine_iterations = settings.refine_iterations[mode];
+    for (var i = 0u; i < refine_iterations; i++) {
+        // TODO: This must use the temp_block!
+        opt_endpoints(&ep, 0u, bits, qblock, 0xFFFFFFFFu, 3u);
+        ep_quant_dequant(&qep, &ep, mode, 3u);
+        // TODO: This must use the temp_block!
+        err = block_quant(&qblock, bits, &ep, 0u, 3u);
+    }
+
+    var channel_data: array<f32, 16>;
+    for (var k = 0u; k < 16u; k++) {
+        channel_data[k] = block[k + rotation * 16u];
+    }
+
+    // Encoding selected channel
+    var aqep: array<i32, 2>;
+    var aqblock: array<u32, 2>;
+
+    err += opt_channel(&aqblock, &aqep, &channel_data, abits, aepbits);
+
+    if (err < *best_err) {
+        for (var i = 0u; i < 8u; i++) {
+            (*best_candidate).qep[i] = qep[i];
+        }
+        for (var i = 0u; i < 2u; i++) {
+            (*best_candidate).qblock[i] = qblock[i];
+            (*best_candidate).aqblock[i] = aqblock[i];
+            (*best_candidate).aqep[i] = aqep[i];
+        }
+        (*best_candidate).rotation = i32(rotation);
+        (*best_candidate).swap = i32(swap);
+        *best_err = err;
+    }
+}
+
+fn bc7_enc_mode45() {
+    var best_candidate: Mode45Parameters;
+    var best_err = state.best_err;
+
+    let channel0 = settings.mode45_channel0;
+    for (var p = channel0; p < settings.channels; p++) {
+        bc7_enc_mode45_candidate(&best_candidate, &best_err, 4u, p, 0u);
+        bc7_enc_mode45_candidate(&best_candidate, &best_err, 4u, p, 1u);
+    }
+
+    // Mode 4
+    if (best_err < state.best_err) {
+        state.best_err = best_err;
+        // TODO
+        // bc7_code_mode45(&best_candidate, 4u);
+    }
+
+    for (var p = channel0; p < settings.channels; p++) {
+        bc7_enc_mode45_candidate(&best_candidate, &best_err, 5u, p, 0u);
+    }
+
+    // Mode 5
+    if (best_err < state.best_err) {
+        state.best_err = best_err;
+        // TODO
+        // bc7_code_mode45(&best_candidate, 5u);
+    }
+}
+
 fn bc7_enc_mode6() {
     const mode = 6u;
     const bits = 4u;
@@ -1064,8 +1284,7 @@ fn compress_block_bc7_core() {
         bc7_enc_mode7();
     }
     if (settings.mode_selection[2] != 0u) {
-        // TODO
-        //bc7_enc_mode45();
+        bc7_enc_mode45();
     }
     if (settings.mode_selection[3] != 0u) {
         bc7_enc_mode6();
