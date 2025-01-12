@@ -61,10 +61,6 @@ fn rsqrt(x: f32) -> f32 {
     return 1.0 / sqrt(x);
 }
 
-fn rcp(x: f32) -> f32 {
-    return 1.0 / x;
-}
-
 fn load_block_interleaved_rgba(block: ptr<function, array<f32, 64>>, xx: u32, yy: u32) {
     for (var y = 0u; y < 4u; y++) {
         for (var x = 0u; x < 4u; x++) {
