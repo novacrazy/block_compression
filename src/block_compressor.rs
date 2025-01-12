@@ -266,11 +266,11 @@ impl BlockCompressor {
     /// encoded. All texture compression need to work on the raw texture data. The texture can
     /// use a sRGB texture format, but it needs to provide a view with a non-sRGB texture format.
     /// For example for a texture with a `Rgba8UnormSrgb` texture format, you will need to provide
-    /// a texture view with the `Rgba8Unorm` format. 
-    /// 
+    /// a texture view with the `Rgba8Unorm` format.
+    ///
     /// # Buffer Requirements
     /// The destination buffer must have sufficient capacity to store the compressed blocks at the
-    /// specified offset. The required size can be calculated using 
+    /// specified offset. The required size can be calculated using
     /// [`CompressionVariant::blocks_byte_size()`].
     ///
     /// For example:
@@ -295,6 +295,7 @@ impl BlockCompressor {
     /// - If width or height is not a multiple of 4
     /// - If the destination buffer is not a storage buffer
     /// - If the destination buffer is too small to hold the compressed blocks at the specified offset
+    /// - If the wrong settings where used for a variant with settings
     #[allow(clippy::too_many_arguments)]
     pub fn add_compression_task(
         &mut self,
@@ -308,12 +309,24 @@ impl BlockCompressor {
     ) {
         let mut settings = settings.into();
 
-        if variant == CompressionVariant::BC6H && settings.is_none() {
-            settings = Some(Settings::BC6H(BC6HSettings::very_slow()));
+        if variant == CompressionVariant::BC6H {
+            match &settings {
+                None => settings = Some(Settings::BC6H(BC6HSettings::very_slow())),
+                Some(Settings::BC6H(..)) => { /* Nothing to do */ }
+                Some(Settings::BC7(..)) => {
+                    panic!("BC7 settings cannot be used with BC6H variant")
+                }
+            }
         }
 
-        if variant == CompressionVariant::BC7 && settings.is_none() {
-            settings = Some(Settings::BC7(BC7Settings::alpha_slow()));
+        if variant == CompressionVariant::BC7 {
+            match &settings {
+                None => settings = Some(Settings::BC7(BC7Settings::alpha_slow())),
+                Some(Settings::BC6H(..)) => {
+                    panic!("BC6H settings cannot be used with BC7 variant")
+                }
+                Some(Settings::BC7(..)) => { /* Nothing to do */ }
+            }
         }
 
         self.add_task(

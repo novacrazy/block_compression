@@ -23,9 +23,6 @@ mod settings;
 pub use block_compressor::BlockCompressor;
 pub use settings::{BC6HSettings, BC7Settings};
 
-// TODO: NHA Implement BC6H
-// TODO: NHA Implement BC7
-
 /// Compression variants supported by this crate.
 #[derive(Copy, Clone, Hash, Eq, PartialEq, Ord, PartialOrd, Debug)]
 pub enum CompressionVariant {
