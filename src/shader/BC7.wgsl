@@ -86,28 +86,22 @@ fn store_data(block_width: u32, xx: u32, yy: u32) {
 fn get_unquant_value(bits: u32, index: i32) -> i32 {
     switch (bits) {
         case 2u: {
-            let table = array<i32, 16>(
-                0, 21, 43, 64, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-            );
+            const table = array<i32, 16>(0, 21, 43, 64, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
             return table[index];
         }
         case 3u: {
-            let table = array<i32, 16>(
-                0, 9, 18, 27, 37, 46, 55, 64, 0, 0, 0, 0, 0, 0, 0, 0
-            );
-           return table[index];
+            const table = array<i32, 16>(0, 9, 18, 27, 37, 46, 55, 64, 0, 0, 0, 0, 0, 0, 0, 0);
+            return table[index];
         }
         default: {
-            let table = array<i32, 16>(
-                0, 4, 9, 13, 17, 21, 26, 30, 34, 38, 43, 47, 51, 55, 60, 64
-            );
-           return table[index];
+            const table = array<i32, 16>(0, 4, 9, 13, 17, 21, 26, 30, 34, 38, 43, 47, 51, 55, 60, 64);
+            return table[index];
         }
     }
 }
 
 fn get_pattern(part_id: i32) -> u32 {
-    let pattern_table = array<u32, 128>(
+    const pattern_table = array<u32, 128>(
         0x50505050u, 0x40404040u, 0x54545454u, 0x54505040u, 0x50404000u, 0x55545450u, 0x55545040u, 0x54504000u,
 		0x50400000u, 0x55555450u, 0x55544000u, 0x54400000u, 0x55555440u, 0x55550000u, 0x55555500u, 0x55000000u,
 		0x55150100u, 0x00004054u, 0x15010000u, 0x00405054u, 0x00004050u, 0x15050100u, 0x05010000u, 0x40505054u,
@@ -130,7 +124,7 @@ fn get_pattern(part_id: i32) -> u32 {
 }
 
 fn get_pattern_mask(part_id: i32, j: u32) -> u32 {
-    let pattern_mask_table = array<u32, 128>(
+    const pattern_mask_table = array<u32, 128>(
 		0xCCCC3333u, 0x88887777u, 0xEEEE1111u, 0xECC81337u, 0xC880377Fu, 0xFEEC0113u, 0xFEC80137u, 0xEC80137Fu,
 		0xC80037FFu, 0xFFEC0013u, 0xFE80017Fu, 0xE80017FFu, 0xFFE80017u, 0xFF0000FFu, 0xFFF0000Fu, 0xF0000FFFu,
 		0xF71008EFu, 0x008EFF71u, 0x71008EFFu, 0x08CEF731u, 0x008CFF73u, 0x73108CEFu, 0x3100CEFFu, 0x8CCE7331u,
@@ -157,7 +151,7 @@ fn get_pattern_mask(part_id: i32, j: u32) -> u32 {
 }
 
 fn get_skips(part_id: i32) -> array<u32, 3> {
-    let skip_table = array<u32, 128>(
+    const skip_table = array<u32, 128>(
         0xf0u, 0xf0u, 0xf0u, 0xf0u, 0xf0u, 0xf0u, 0xf0u, 0xf0u, 0xf0u, 0xf0u, 0xf0u, 0xf0u, 0xf0u, 0xf0u, 0xf0u, 0xf0u,
         0xf0u, 0x20u, 0x80u, 0x20u, 0x20u, 0x80u, 0x80u, 0xf0u, 0x20u, 0x80u, 0x20u, 0x20u, 0x80u, 0x80u, 0x20u, 0x20u,
         0xf0u, 0xf0u, 0x60u, 0x80u, 0x20u, 0x80u, 0xf0u, 0xf0u, 0x20u, 0x80u, 0x20u, 0x20u, 0x20u, 0xf0u, 0xf0u, 0x60u,
@@ -170,11 +164,7 @@ fn get_skips(part_id: i32) -> array<u32, 3> {
 
     let skip_packed = skip_table[part_id];
 
-    var skips: array<u32, 3>;
-    skips[0] = 0u;
-    skips[1] = skip_packed >> 4u;
-    skips[2] = skip_packed & 15u;
-    return skips;
+    return array<u32, 3>(0u, skip_packed >> 4u, skip_packed & 15u);
 }
 
 // Principal Component Analysis (PCA) bound
@@ -232,7 +222,7 @@ fn ssymv4(a: ptr<function, array<f32, 4>>, covar: ptr<function, array<f32, 10>>,
 }
 
 fn compute_axis(axis: ptr<function, array<f32, 4>>, covar: ptr<function, array<f32, 10>>, power_iterations: u32, channels: u32) {
-    var a_vec: array<f32, 4> = array<f32, 4>(1.0, 1.0, 1.0, 1.0);
+    var a_vec = array<f32, 4>(1.0, 1.0, 1.0, 1.0);
 
     for (var i = 0u; i < power_iterations; i++) {
         if (channels == 3u) {

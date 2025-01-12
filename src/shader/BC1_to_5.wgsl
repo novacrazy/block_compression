@@ -165,7 +165,7 @@ fn ssymv(result: ptr<function, array<f32, 3>>, covar: ptr<function, array<f32, 6
 }
 
 fn compute_axis3(axis: ptr<function, array<f32, 3>>, covar: ptr<function, array<f32, 6>>, powerIterations: i32) {
-    var a_vector: array<f32, 3> = array<f32, 3>(1.0, 1.0, 1.0);
+    var a_vector = array<f32, 3>(1.0, 1.0, 1.0);
 
     for (var i = 0; i < powerIterations; i++) {
         ssymv(axis, covar, &a_vector);
@@ -301,7 +301,7 @@ fn bc1_refine(pe: ptr<function, array<i32, 2>>, bits: u32, dc: ptr<function, arr
             c1[p] = (*dc)[p];
         }
     } else {
-        var atb1: array<f32, 3> = array<f32, 3>(0.0, 0.0, 0.0);
+        var atb1: array<f32, 3>;
         var sum_q = 0.0;
         var sum_qq = 0.0;
         var shifted_bits = bits;
@@ -348,8 +348,8 @@ fn bc1_refine(pe: ptr<function, array<i32, 2>>, bits: u32, dc: ptr<function, arr
 }
 
 fn fix_qbits(qbits: u32) -> u32 {
-    let mask_01b: u32 = 0x55555555u;
-    let mask_10b: u32 = 0xAAAAAAAAu;
+    const mask_01b: u32 = 0x55555555u;
+    const mask_10b: u32 = 0xAAAAAAAAu;
 
     let qbits0 = qbits & mask_01b;
     let qbits1 = qbits & mask_10b;
@@ -364,7 +364,7 @@ fn compress_block_bc1_core() -> array<u32, 2> {
     var dc: array<f32, 3>;
     compute_covar_dc(&covar, &dc);
 
-    let eps = 0.001;
+    const eps = 0.001;
     covar[0] += eps;
     covar[3] += eps;
     covar[5] += eps;
@@ -405,7 +405,7 @@ fn compress_block_bc1_core() -> array<u32, 2> {
 }
 
 fn compress_block_bc3_alpha() -> array<u32, 2> {
-    var ep: array<f32, 2> = array<f32, 2>(255.0, 0.0);
+    var ep = array<f32, 2>(255.0, 0.0);
 
     // Find min/max endpoints using block[48] to block[63] for alpha
     for (var k: u32 = 0u; k < 16u; k++) {
@@ -418,7 +418,7 @@ fn compress_block_bc3_alpha() -> array<u32, 2> {
         ep[1] = ep[0] + 0.1;
     }
 
-    var qblock: array<u32, 2> = array<u32, 2>(0u, 0u);
+    var qblock: array<u32, 2>;
     let scale = 7.0 / (ep[1] - ep[0]);
 
     for (var k: u32 = 0u; k < 16u; k++) {
