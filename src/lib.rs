@@ -21,7 +21,7 @@ mod block_compressor;
 mod settings;
 
 pub use block_compressor::BlockCompressor;
-pub use settings::{BC6HSettings, BC7Settings};
+pub use settings::{BC6HSettings, BC7Settings, Settings};
 
 /// Compression variants supported by this crate.
 #[derive(Copy, Clone, Hash, Eq, PartialEq, Ord, PartialOrd, Debug)]

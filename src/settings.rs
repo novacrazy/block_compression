@@ -1,5 +1,6 @@
 use bytemuck::{Pod, Zeroable};
 
+/// Wrapper for all settings.
 pub enum Settings {
     BC6H(BC6HSettings),
     BC7(BC7Settings),
