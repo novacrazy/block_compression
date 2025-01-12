@@ -78,8 +78,8 @@ fn load_block_g_8bit(xx: u32, yy: u32) {
     }
 }
 
-fn load_block_alpha_4bit(xx: u32, yy: u32) -> array<u32, 2> {
-    var alpha_bits: array<u32, 2>;
+fn load_block_alpha_4bit(xx: u32, yy: u32) -> vec2<u32> {
+    var alpha_bits: vec2<u32>;
 
     for (var y = 0u; y < 4u; y++) {
         for (var x = 0u; x < 4u; x++) {
@@ -356,7 +356,7 @@ fn fix_qbits(qbits: u32) -> u32 {
     return (qbits1 >> 1u) + (qbits1 ^ (qbits0 << 1u));
 }
 
-fn compress_block_bc1_core() -> array<u32, 2> {
+fn compress_block_bc1_core() -> vec2<u32> {
     let power_iterations = 4;
     let refine_iterations = 1;
 
@@ -385,7 +385,7 @@ fn compress_block_bc1_core() -> array<u32, 2> {
         p[1] = temp;
     }
 
-    var data: array<u32, 2>;
+    var data: vec2<u32>;
     data[0] = (u32(p[1]) << 16u) | u32(p[0]);
     data[1] = fast_quant(p[0], p[1]);
 
@@ -404,7 +404,7 @@ fn compress_block_bc1_core() -> array<u32, 2> {
     return data;
 }
 
-fn compress_block_bc3_alpha() -> array<u32, 2> {
+fn compress_block_bc3_alpha() -> vec2<u32> {
     var ep = array<f32, 2>(255.0, 0.0);
 
     // Find min/max endpoints using block[48] to block[63] for alpha
@@ -438,7 +438,7 @@ fn compress_block_bc3_alpha() -> array<u32, 2> {
         qblock[k / 8u] |= u32(q) << ((k % 8u) * 3u);
     }
 
-    var data: array<u32, 2>;
+    var data: vec2<u32>;
     data[0] = (clamp(u32(ep[0]), 0u, 255u) << 8u) | clamp(u32(ep[1]), 0u, 255u);
     data[0] |= qblock[0] << 16u;
     data[1] = qblock[0] >> 16u;
@@ -572,8 +572,8 @@ fn compress_bc5(@builtin(global_invocation_id) global_id: vec3<u32>) {
 
     load_block_g_8bit(xx, yy);
     let green_result = compress_block_bc3_alpha();
-    compressed_data[2] = green_result[0];
-    compressed_data[3] = green_result[1];
+    compressed_data[2] = green_result.x;
+    compressed_data[3] = green_result.y;
 
     store_data_4(block_width, xx, yy, compressed_data);
 }

@@ -152,7 +152,7 @@ fn get_pattern_mask(part_id: i32, j: u32) -> u32 {
     return select(select(mask1, mask0, j == 0), ~mask0 & ~mask1, j == 2);
 }
 
-fn get_skips(part_id: i32) -> array<u32, 3> {
+fn get_skips(part_id: i32) -> vec3<u32> {
     const skip_table = array<u32, 128>(
         0xf0u, 0xf0u, 0xf0u, 0xf0u, 0xf0u, 0xf0u, 0xf0u, 0xf0u, 0xf0u, 0xf0u, 0xf0u, 0xf0u, 0xf0u, 0xf0u, 0xf0u, 0xf0u,
         0xf0u, 0x20u, 0x80u, 0x20u, 0x20u, 0x80u, 0x80u, 0xf0u, 0x20u, 0x80u, 0x20u, 0x20u, 0x80u, 0x80u, 0x20u, 0x20u,
@@ -166,7 +166,7 @@ fn get_skips(part_id: i32) -> array<u32, 3> {
 
     let skip_packed = skip_table[part_id];
 
-    return array<u32, 3>(0u, skip_packed >> 4u, skip_packed & 15u);
+    return vec3<u32>(0u, skip_packed >> 4u, skip_packed & 15u);
 }
 
 // Principal Component Analysis (PCA) bound
@@ -256,9 +256,7 @@ fn compute_axis(axis: ptr<function, array<f32, 4>>, covar: ptr<function, array<f
     }
 }
 
-fn compute_stats_masked(block: ptr<function, array<f32, 64>>, mask: u32, channels: u32) -> array<f32, 15> {
-    var stats: array<f32, 15>;
-
+fn compute_stats_masked(stats: ptr<function, array<f32, 15>>, block: ptr<function, array<f32, 64>>, mask: u32, channels: u32) {
     var mask_shifted = mask << 1u;
     for (var k = 0u; k < 16u; k++) {
         mask_shifted = mask_shifted >> 1u;
@@ -268,70 +266,66 @@ fn compute_stats_masked(block: ptr<function, array<f32, 64>>, mask: u32, channel
         for (var p = 0u; p < channels; p++) {
             rgba[p] = (*block)[k + p * 16u] * flag;
         }
-        stats[14] += flag;
+        (*stats)[14] += flag;
 
-        stats[10] += rgba[0];
-        stats[11] += rgba[1];
-        stats[12] += rgba[2];
+        (*stats)[10] += rgba[0];
+        (*stats)[11] += rgba[1];
+        (*stats)[12] += rgba[2];
 
-        stats[0] += rgba[0] * rgba[0];
-        stats[1] += rgba[0] * rgba[1];
-        stats[2] += rgba[0] * rgba[2];
+        (*stats)[0] += rgba[0] * rgba[0];
+        (*stats)[1] += rgba[0] * rgba[1];
+        (*stats)[2] += rgba[0] * rgba[2];
 
-        stats[4] += rgba[1] * rgba[1];
-        stats[5] += rgba[1] * rgba[2];
+        (*stats)[4] += rgba[1] * rgba[1];
+        (*stats)[5] += rgba[1] * rgba[2];
 
-        stats[7] += rgba[2] * rgba[2];
+        (*stats)[7] += rgba[2] * rgba[2];
 
         if (channels == 4u) {
-            stats[13] += rgba[3];
-            stats[3] += rgba[0] * rgba[3];
-            stats[6] += rgba[1] * rgba[3];
-            stats[8] += rgba[2] * rgba[3];
-            stats[9] += rgba[3] * rgba[3];
+            (*stats)[13] += rgba[3];
+            (*stats)[3] += rgba[0] * rgba[3];
+            (*stats)[6] += rgba[1] * rgba[3];
+            (*stats)[8] += rgba[2] * rgba[3];
+            (*stats)[9] += rgba[3] * rgba[3];
         }
     }
-
-    return stats;
 }
 
-fn covar_from_stats(stats: array<f32, 15>, channels: u32) -> array<f32, 10> {
-    var covar: array<f32, 10>;
+fn covar_from_stats(covar: ptr<function, array<f32, 10>>, stats: array<f32, 15>, channels: u32) {
+    (*covar)[0] = stats[0] - stats[10] * stats[10] / stats[14];
+    (*covar)[1] = stats[1] - stats[10] * stats[11] / stats[14];
+    (*covar)[2] = stats[2] - stats[10] * stats[12] / stats[14];
 
-    covar[0] = stats[0] - stats[10] * stats[10] / stats[14];
-    covar[1] = stats[1] - stats[10] * stats[11] / stats[14];
-    covar[2] = stats[2] - stats[10] * stats[12] / stats[14];
+    (*covar)[4] = stats[4] - stats[11] * stats[11] / stats[14];
+    (*covar)[5] = stats[5] - stats[11] * stats[12] / stats[14];
 
-    covar[4] = stats[4] - stats[11] * stats[11] / stats[14];
-    covar[5] = stats[5] - stats[11] * stats[12] / stats[14];
-
-    covar[7] = stats[7] - stats[12] * stats[12] / stats[14];
+    (*covar)[7] = stats[7] - stats[12] * stats[12] / stats[14];
 
     if (channels == 4u) {
-        covar[3] = stats[3] - stats[10] * stats[13] / stats[14];
-        covar[6] = stats[6] - stats[11] * stats[13] / stats[14];
-        covar[8] = stats[8] - stats[12] * stats[13] / stats[14];
-        covar[9] = stats[9] - stats[13] * stats[13] / stats[14];
+        (*covar)[3] = stats[3] - stats[10] * stats[13] / stats[14];
+        (*covar)[6] = stats[6] - stats[11] * stats[13] / stats[14];
+        (*covar)[8] = stats[8] - stats[12] * stats[13] / stats[14];
+        (*covar)[9] = stats[9] - stats[13] * stats[13] / stats[14];
     }
-
-    return covar;
 }
 
-fn compute_covar_dc_masked(dc: ptr<function, array<f32, 4>>, block: ptr<function, array<f32, 64>>, mask: u32, channels: u32) -> array<f32, 10> {
-    let stats = compute_stats_masked(block, mask, channels);
+fn compute_covar_dc_masked(covar: ptr<function, array<f32, 10>>, dc: ptr<function, array<f32, 4>>, block: ptr<function, array<f32, 64>>, mask: u32, channels: u32) {
+    var stats: array<f32, 15>;
+    compute_stats_masked(&stats, block, mask, channels);
 
     // Calculate dc values from stats
     for (var p = 0u; p < channels; p++) {
         (*dc)[p] = stats[10u + p] / stats[14];
     }
 
-    return covar_from_stats(stats, channels);
+    covar_from_stats(covar, stats, channels);
 }
 
 fn block_pca_axis(axis: ptr<function, array<f32, 4>>, dc: ptr<function, array<f32, 4>>, block: ptr<function, array<f32, 64>>, mask: u32, channels: u32) {
     const power_iterations = 8u; // 4 not enough for HQ
 
-    var covar = compute_covar_dc_masked(dc, block, mask, channels);
+    var covar: array<f32, 10>;
+    compute_covar_dc_masked(&covar, dc, block, mask, channels);
 
     const inv_var = 1.0 / (256.0 * 256.0);
     for (var k = 0u; k < 10u; k++) {
@@ -348,21 +342,28 @@ fn block_pca_axis(axis: ptr<function, array<f32, 4>>, dc: ptr<function, array<f3
 }
 
 fn block_pca_bound(block: ptr<function, array<f32, 64>>, mask: u32, channels: u32) -> f32 {
-    let stats = compute_stats_masked(block, mask, channels);
-    let covar = covar_from_stats(stats, channels);
+    var stats: array<f32, 15>;
+    compute_stats_masked(&stats, block, mask, channels);
+
+    var covar: array<f32, 10>;
+    covar_from_stats(&covar, stats, channels);
+
     return get_pca_bound(covar, channels);
 }
 
 fn block_pca_bound_split(block: ptr<function, array<f32, 64>>, mask: u32, full_stats: array<f32, 15>, channels: u32) -> f32 {
-    var stats = compute_stats_masked(block, mask, channels);
+    var stats: array<f32, 15>;
+    compute_stats_masked(&stats, block, mask, channels);
 
-    let covar1 = covar_from_stats(stats, channels);
+    var covar1: array<f32, 10>;
+    covar_from_stats(&covar1, stats, channels);
 
     for (var i = 0u; i < 15u; i++) {
         stats[i] = full_stats[i] - stats[i];
     }
 
-    let covar2 = covar_from_stats(stats, channels);
+    var covar2: array<f32, 10>;
+    covar_from_stats(&covar2, stats, channels);
 
     var bound = 0.0;
     bound += get_pca_bound(covar1, channels);
@@ -1158,7 +1159,8 @@ fn bc7_enc_mode13(state: ptr<function, State>, block: ptr<function, array<f32, 6
         return;
     }
 
-    var full_stats = compute_stats_masked(block, 0xFFFFFFFFu, 3u);
+    var full_stats: array<f32, 15>;
+    compute_stats_masked(&full_stats, block, 0xFFFFFFFFu, 3u);
 
     var part_list: array<i32, 64>;
     for (var part = 0; part < 64; part++) {
@@ -1314,7 +1316,8 @@ fn bc7_enc_mode7(state: ptr<function, State>, block: ptr<function, array<f32, 64
         return;
     }
 
-    var full_stats = compute_stats_masked(block, 0xFFFFFFFFu, settings.channels);
+    var full_stats: array<f32, 15>;
+    compute_stats_masked(&full_stats, block, 0xFFFFFFFFu, settings.channels);
 
     var part_list: array<i32, 64>;
     for (var part = 0; part < 64; part++) {

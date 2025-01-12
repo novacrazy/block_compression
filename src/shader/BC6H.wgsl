@@ -47,7 +47,7 @@ struct State {
 @group(0) @binding(2) var<uniform> uniforms: Uniforms;
 @group(0) @binding(3) var<storage, read> settings: Settings;
 
-fn get_skips(part_id: i32) -> array<u32, 3> {
+fn get_skips(part_id: i32) -> vec3<u32> {
     const skip_table = array<u32, 128>(
         0xf0u, 0xf0u, 0xf0u, 0xf0u, 0xf0u, 0xf0u, 0xf0u, 0xf0u, 0xf0u, 0xf0u, 0xf0u, 0xf0u, 0xf0u, 0xf0u, 0xf0u, 0xf0u,
         0xf0u, 0x20u, 0x80u, 0x20u, 0x20u, 0x80u, 0x80u, 0xf0u, 0x20u, 0x80u, 0x20u, 0x20u, 0x80u, 0x80u, 0x20u, 0x20u,
@@ -61,7 +61,7 @@ fn get_skips(part_id: i32) -> array<u32, 3> {
 
     let skip_packed = skip_table[part_id];
 
-    return array<u32, 3>(0u, skip_packed >> 4u, skip_packed & 15u);
+    return vec3<u32>(0u, skip_packed >> 4u, skip_packed & 15u);
 }
 
 fn put_bits(state: ptr<function, State>, pos: ptr<function, u32>, bits: u32, v: u32) {
