@@ -521,6 +521,32 @@ impl BlockCompressor {
 
     fn upload(&mut self) {
         self.scratch_buffer.clear();
+        for (index, task) in self.task.iter_mut().enumerate() {
+            let offset = index * self.uniforms_aligned_size;
+            task.uniform_offset = offset as u32;
+
+            let uniforms = Uniforms {
+                width: task.width,
+                height: task.height,
+                blocks_offset: task.buffer_offset,
+            };
+
+            self.scratch_buffer
+                .resize(offset + self.uniforms_aligned_size, 0);
+            self.scratch_buffer[offset..offset + size_of::<Uniforms>()]
+                .copy_from_slice(cast_slice(&[uniforms]));
+        }
+        if !self.scratch_buffer.is_empty() {
+            if let Some(mut data) = self.queue.write_buffer_with(
+                &self.uniforms_buffer,
+                0,
+                NonZeroU64::new(self.scratch_buffer.len() as u64).unwrap(),
+            ) {
+                data.copy_from_slice(&self.scratch_buffer);
+            }
+        }
+
+        self.scratch_buffer.clear();
         for (index, task) in self
             .task
             .iter_mut()
@@ -573,32 +599,6 @@ impl BlockCompressor {
         if !self.scratch_buffer.is_empty() {
             if let Some(mut data) = self.queue.write_buffer_with(
                 &self.bc7_settings_buffer,
-                0,
-                NonZeroU64::new(self.scratch_buffer.len() as u64).unwrap(),
-            ) {
-                data.copy_from_slice(&self.scratch_buffer);
-            }
-        }
-
-        self.scratch_buffer.clear();
-        for (index, task) in self.task.iter_mut().enumerate() {
-            let offset = index * self.uniforms_aligned_size;
-            task.uniform_offset = offset as u32;
-
-            let uniforms = Uniforms {
-                width: task.width,
-                height: task.height,
-                blocks_offset: task.buffer_offset,
-            };
-
-            self.scratch_buffer
-                .resize(offset + self.uniforms_aligned_size, 0);
-            self.scratch_buffer[offset..offset + size_of::<Uniforms>()]
-                .copy_from_slice(cast_slice(&[uniforms]));
-        }
-        if !self.scratch_buffer.is_empty() {
-            if let Some(mut data) = self.queue.write_buffer_with(
-                &self.uniforms_buffer,
                 0,
                 NonZeroU64::new(self.scratch_buffer.len() as u64).unwrap(),
             ) {
