@@ -4,7 +4,7 @@ use bytemuck::{cast_slice, Pod, Zeroable};
 use wgpu::{
     self, include_wgsl, BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout,
     BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingResource, BindingType, Buffer,
-    BufferBindingType, BufferDescriptor, BufferUsages, ComputePass, ComputePipeline,
+    BufferBinding, BufferBindingType, BufferDescriptor, BufferUsages, ComputePass, ComputePipeline,
     ComputePipelineDescriptor, Device, PipelineCompilationOptions, PipelineLayoutDescriptor, Queue,
     ShaderModule, ShaderStages, TextureSampleType, TextureView, TextureViewDimension,
 };
@@ -393,7 +393,11 @@ impl BlockCompressor {
                     },
                     BindGroupEntry {
                         binding: 2,
-                        resource: self.uniforms_buffer.as_entire_binding(),
+                        resource: BindingResource::Buffer(BufferBinding {
+                            buffer: &self.uniforms_buffer,
+                            offset: 0,
+                            size: Some(NonZeroU64::new(self.uniforms_aligned_size as u64).unwrap()),
+                        }),
                     },
                 ],
             }),
@@ -411,11 +415,19 @@ impl BlockCompressor {
                     },
                     BindGroupEntry {
                         binding: 2,
-                        resource: self.uniforms_buffer.as_entire_binding(),
+                        resource: BindingResource::Buffer(BufferBinding {
+                            buffer: &self.uniforms_buffer,
+                            offset: 0,
+                            size: Some(NonZeroU64::new(self.uniforms_aligned_size as u64).unwrap()),
+                        }),
                     },
                     BindGroupEntry {
                         binding: 3,
-                        resource: self.bc6h_settings_buffer.as_entire_binding(),
+                        resource: BindingResource::Buffer(BufferBinding {
+                            buffer: &self.bc6h_settings_buffer,
+                            offset: 0,
+                            size: Some(NonZeroU64::new(self.bc6h_aligned_size as u64).unwrap()),
+                        }),
                     },
                 ],
             }),
@@ -433,11 +445,19 @@ impl BlockCompressor {
                     },
                     BindGroupEntry {
                         binding: 2,
-                        resource: self.uniforms_buffer.as_entire_binding(),
+                        resource: BindingResource::Buffer(BufferBinding {
+                            buffer: &self.uniforms_buffer,
+                            offset: 0,
+                            size: Some(NonZeroU64::new(self.uniforms_aligned_size as u64).unwrap()),
+                        }),
                     },
                     BindGroupEntry {
                         binding: 3,
-                        resource: self.bc7_settings_buffer.as_entire_binding(),
+                        resource: BindingResource::Buffer(BufferBinding {
+                            buffer: &self.bc7_settings_buffer,
+                            offset: 0,
+                            size: Some(NonZeroU64::new(self.bc7_aligned_size as u64).unwrap()),
+                        }),
                     },
                 ],
             }),
