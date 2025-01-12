@@ -453,10 +453,8 @@ fn compress_bc1(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let xx = global_id.x;
     let yy = global_id.y;
 
-    let texture_dimensions: vec2<u32> = textureDimensions(source_texture);
-
-    let block_width = (texture_dimensions.x + 3u) / 4u;
-    let block_height = (texture_dimensions.y + 3u) / 4u;
+    let block_width = (uniforms.width + 3u) / 4u;
+    let block_height = (uniforms.height + 3u) / 4u;
 
     if (xx >= block_width || yy >= block_height) {
         return;
