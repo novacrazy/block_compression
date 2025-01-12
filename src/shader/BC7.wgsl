@@ -41,9 +41,9 @@ struct State {
 
 struct Mode45Parameters {
     qep: array<i32, 8>,
-    qblock: array<u32, 2>,
-    aqep: array<i32, 2>,
-    aqblock: array<u32, 2>,
+    qblock: vec2<u32>,
+    aqep: vec2<i32>,
+    aqblock: vec2<u32>,
     rotation: u32,
     swap: u32,
 }
@@ -184,10 +184,10 @@ fn get_pca_bound(covar: array<f32, 10>, channels: u32) -> f32 {
     covar_scaled[4] += eps;
     covar_scaled[7] += eps;
 
-    var axis: array<f32, 4>;
+    var axis: vec4<f32>;
     compute_axis(&axis, &covar_scaled, power_iterations, channels);
 
-    var a_vec: array<f32, 4>;
+    var a_vec: vec4<f32>;
     if (channels == 3u) {
         ssymv3(&a_vec, &covar_scaled, &axis);
     } else if (channels == 4u) {
@@ -210,21 +210,21 @@ fn get_pca_bound(covar: array<f32, 10>, channels: u32) -> f32 {
     return bound;
 }
 
-fn ssymv3(a: ptr<function, array<f32, 4>>, covar: ptr<function, array<f32, 10>>, b: ptr<function, array<f32, 4>>) {
+fn ssymv3(a: ptr<function, vec4<f32>>, covar: ptr<function, array<f32, 10>>, b: ptr<function, vec4<f32>>) {
     (*a)[0] = (*covar)[0] * (*b)[0] + (*covar)[1] * (*b)[1] + (*covar)[2] * (*b)[2];
     (*a)[1] = (*covar)[1] * (*b)[0] + (*covar)[4] * (*b)[1] + (*covar)[5] * (*b)[2];
     (*a)[2] = (*covar)[2] * (*b)[0] + (*covar)[5] * (*b)[1] + (*covar)[7] * (*b)[2];
 }
 
-fn ssymv4(a: ptr<function, array<f32, 4>>, covar: ptr<function, array<f32, 10>>, b: ptr<function, array<f32, 4>>) {
+fn ssymv4(a: ptr<function, vec4<f32>>, covar: ptr<function, array<f32, 10>>, b: ptr<function, vec4<f32>>) {
     (*a)[0] = (*covar)[0] * (*b)[0] + (*covar)[1] * (*b)[1] + (*covar)[2] * (*b)[2] + (*covar)[3] * (*b)[3];
     (*a)[1] = (*covar)[1] * (*b)[0] + (*covar)[4] * (*b)[1] + (*covar)[5] * (*b)[2] + (*covar)[6] * (*b)[3];
     (*a)[2] = (*covar)[2] * (*b)[0] + (*covar)[5] * (*b)[1] + (*covar)[7] * (*b)[2] + (*covar)[8] * (*b)[3];
     (*a)[3] = (*covar)[3] * (*b)[0] + (*covar)[6] * (*b)[1] + (*covar)[8] * (*b)[2] + (*covar)[9] * (*b)[3];
 }
 
-fn compute_axis(axis: ptr<function, array<f32, 4>>, covar: ptr<function, array<f32, 10>>, power_iterations: u32, channels: u32) {
-    var a_vec = array<f32, 4>(1.0, 1.0, 1.0, 1.0);
+fn compute_axis(axis: ptr<function, vec4<f32>>, covar: ptr<function, array<f32, 10>>, power_iterations: u32, channels: u32) {
+    var a_vec = vec4<f32>(1.0, 1.0, 1.0, 1.0);
 
     for (var i = 0u; i < power_iterations; i++) {
         if (channels == 3u) {
@@ -262,7 +262,7 @@ fn compute_stats_masked(stats: ptr<function, array<f32, 15>>, block: ptr<functio
         mask_shifted = mask_shifted >> 1u;
         let flag = f32(mask_shifted & 1u);
 
-        var rgba: array<f32, 4>;
+        var rgba: vec4<f32>;
         for (var p = 0u; p < channels; p++) {
             rgba[p] = (*block)[k + p * 16u] * flag;
         }
@@ -309,7 +309,7 @@ fn covar_from_stats(covar: ptr<function, array<f32, 10>>, stats: array<f32, 15>,
     }
 }
 
-fn compute_covar_dc_masked(covar: ptr<function, array<f32, 10>>, dc: ptr<function, array<f32, 4>>, block: ptr<function, array<f32, 64>>, mask: u32, channels: u32) {
+fn compute_covar_dc_masked(covar: ptr<function, array<f32, 10>>, dc: ptr<function, vec4<f32>>, block: ptr<function, array<f32, 64>>, mask: u32, channels: u32) {
     var stats: array<f32, 15>;
     compute_stats_masked(&stats, block, mask, channels);
 
@@ -321,7 +321,7 @@ fn compute_covar_dc_masked(covar: ptr<function, array<f32, 10>>, dc: ptr<functio
     covar_from_stats(covar, stats, channels);
 }
 
-fn block_pca_axis(axis: ptr<function, array<f32, 4>>, dc: ptr<function, array<f32, 4>>, block: ptr<function, array<f32, 64>>, mask: u32, channels: u32) {
+fn block_pca_axis(axis: ptr<function, vec4<f32>>, dc: ptr<function, vec4<f32>>, block: ptr<function, array<f32, 64>>, mask: u32, channels: u32) {
     const power_iterations = 8u; // 4 not enough for HQ
 
     var covar: array<f32, 10>;
@@ -504,7 +504,7 @@ fn ep_quant_dequant(qep: ptr<function, array<i32, 24>>, ep: ptr<function, array<
     ep_dequant(ep, qep, mode);
 }
 
-fn block_quant(qblock: ptr<function, array<u32, 2>>, block: ptr<function, array<f32, 64>>, bits: u32, ep: ptr<function, array<f32, 24>>, pattern: u32, channels: u32) -> f32 {
+fn block_quant(qblock: ptr<function, vec2<u32>>, block: ptr<function, array<f32, 64>>, bits: u32, ep: ptr<function, array<f32, 24>>, pattern: u32, channels: u32) -> f32 {
     var total_err = 0.0;
     let levels = 1u << bits;
 
@@ -559,11 +559,11 @@ fn block_quant(qblock: ptr<function, array<u32, 2>>, block: ptr<function, array<
 }
 
 fn block_segment_core(ep: ptr<function, array<f32, 24>>, block: ptr<function, array<f32, 64>>, mask: u32, channels: u32) {
-    var axis: array<f32, 4>;
-    var dc: array<f32, 4>;
+    var axis: vec4<f32>;
+    var dc: vec4<f32>;
     block_pca_axis(&axis, &dc, block, mask, channels);
 
-    var ext = array<f32, 2>(3.40282347e38, -3.40282347e38);
+    var ext = vec2<f32>(3.40282347e38, -3.40282347e38);
 
     // Find min/max
     var mask_shifted = mask << 1u;
@@ -605,8 +605,8 @@ fn block_segment(ep: ptr<function, array<f32, 24>>, block: ptr<function, array<f
     }
 }
 
-fn opt_channel(qblock: ptr<function, array<u32, 2>>, qep: ptr<function, array<i32, 2>>, channel_block: ptr<function, array<f32, 16>>, bits: u32, epbits: u32) -> f32 {
-    var ep: array<f32, 2> = array<f32, 2>(255.0, 0.0);
+fn opt_channel(qblock: ptr<function, vec2<u32>>, qep: ptr<function, vec2<i32>>, channel_block: ptr<function, array<f32, 16>>, bits: u32, epbits: u32) -> f32 {
+    var ep: vec2<f32> = vec2<f32>(255.0, 0.0);
 
     for (var k = 0u; k < 16u; k++) {
         ep[0] = min(ep[0], (*channel_block)[k]);
@@ -627,7 +627,7 @@ fn opt_channel(qblock: ptr<function, array<u32, 2>>, qep: ptr<function, array<i3
     return err;
 }
 
-fn channel_quant_dequant(qep: ptr<function, array<i32, 2>>, ep: ptr<function, array<f32, 2>>, epbits: u32) {
+fn channel_quant_dequant(qep: ptr<function, vec2<i32>>, ep: ptr<function, vec2<f32>>, epbits: u32) {
     let elevels = i32(1u << epbits);
 
     for (var i = 0u; i < 2u; i++) {
@@ -637,7 +637,7 @@ fn channel_quant_dequant(qep: ptr<function, array<i32, 2>>, ep: ptr<function, ar
     }
 }
 
-fn channel_opt_quant(qblock: ptr<function, array<u32, 2>>, channel_block: ptr<function, array<f32, 16>>, bits: u32, ep: ptr<function, array<f32, 2>>) -> f32 {
+fn channel_opt_quant(qblock: ptr<function, vec2<u32>>, channel_block: ptr<function, array<f32, 16>>, bits: u32, ep: ptr<function, vec2<f32>>) -> f32 {
     let levels = i32(1u << bits);
 
     (*qblock)[0] = 0u;
@@ -671,7 +671,7 @@ fn channel_opt_quant(qblock: ptr<function, array<u32, 2>>, channel_block: ptr<fu
     return total_err;
 }
 
-fn channel_opt_endpoints(ep: ptr<function, array<f32, 2>>, channel_block: ptr<function, array<f32, 16>>, bits: u32, qblock: array<u32, 2>) {
+fn channel_opt_endpoints(ep: ptr<function, vec2<f32>>, channel_block: ptr<function, array<f32, 16>>, bits: u32, qblock: vec2<u32>) {
     let levels = i32(1u << bits);
 
     var Atb1 = 0.0;
@@ -757,10 +757,10 @@ fn data_shl_1bit_from(state: ptr<function, State>, from_bits: u32) {
     }
 }
 
-fn opt_endpoints(ep: ptr<function, array<f32, 24>>, offset: u32, block: ptr<function, array<f32, 64>>, bits: u32, qblock: array<u32, 2>, mask: u32, channels: u32) {
+fn opt_endpoints(ep: ptr<function, array<f32, 24>>, offset: u32, block: ptr<function, array<f32, 64>>, bits: u32, qblock: vec2<u32>, mask: u32, channels: u32) {
     let levels = i32(1u << bits);
 
-    var Atb1: array<f32, 4>;
+    var Atb1: vec4<f32>;
     var sum_q = 0.0;
     var sum_qq = 0.0;
     var sum: array<f32, 5>;
@@ -792,7 +792,7 @@ fn opt_endpoints(ep: ptr<function, array<f32, 24>>, offset: u32, block: ptr<func
         }
     }
 
-    var Atb2: array<f32, 4>;
+    var Atb2: vec4<f32>;
     for (var p = 0u; p < channels; p++) {
         Atb2[p] = f32(levels - 1) * sum[p] - Atb1[p];
     }
@@ -816,7 +816,7 @@ fn opt_endpoints(ep: ptr<function, array<f32, 24>>, offset: u32, block: ptr<func
     }
 }
 
-fn bc7_code_qblock(state: ptr<function, State>, qpos: ptr<function, u32>, qblock: array<u32, 2>, bits: u32, flips: u32) {
+fn bc7_code_qblock(state: ptr<function, State>, qpos: ptr<function, u32>, qblock: vec2<u32>, bits: u32, flips: u32) {
     let levels = 1u << bits;
     var flips_shifted = flips;
 
@@ -857,7 +857,7 @@ fn bc7_code_adjust_skip_mode01237(state: ptr<function, State>, mode: u32, part_i
     }
 }
 
-fn bc7_code_apply_swap_mode456(qep: ptr<function, array<i32, 24>>, channels: u32, qblock: ptr<function, array<u32, 2>>, bits: u32) {
+fn bc7_code_apply_swap_mode456(qep: ptr<function, array<i32, 24>>, channels: u32, qblock: ptr<function, vec2<u32>>, bits: u32) {
     let levels = 1u << bits;
 
     if (((*qblock)[0] & 15u) >= levels / 2u) {
@@ -873,7 +873,7 @@ fn bc7_code_apply_swap_mode456(qep: ptr<function, array<i32, 24>>, channels: u32
     }
 }
 
-fn bc7_code_apply_swap_mode01237(qep: ptr<function, array<i32, 24>>, qblock: array<u32, 2>, mode: u32, part_id: i32) -> u32 {
+fn bc7_code_apply_swap_mode01237(qep: ptr<function, array<i32, 24>>, qblock: vec2<u32>, mode: u32, part_id: i32) -> u32 {
     let bits = select(2u, 3u, mode == 0u || mode == 1u);
     let pairs = select(2u, 3u, mode == 0u || mode == 2u);
 
@@ -902,7 +902,7 @@ fn bc7_code_apply_swap_mode01237(qep: ptr<function, array<i32, 24>>, qblock: arr
     return flips;
 }
 
-fn bc7_code_mode01237(state: ptr<function, State>, qep: ptr<function, array<i32, 24>>, qblock: array<u32, 2>, part_id: i32, mode: u32) {
+fn bc7_code_mode01237(state: ptr<function, State>, qep: ptr<function, array<i32, 24>>, qblock: vec2<u32>, part_id: i32, mode: u32) {
     let bits = select(2u, 3u, mode == 0u || mode == 1u);
     let pairs = select(2u, 3u, mode == 0u || mode == 2u);
     let channels = select(3u, 4u, mode == 7u);
@@ -962,9 +962,9 @@ fn bc7_code_mode01237(state: ptr<function, State>, qep: ptr<function, array<i32,
 
 fn bc7_code_mode45(state: ptr<function, State>, params: ptr<function, Mode45Parameters>, mode: u32) {
     var qep: array<i32, 24>;
-    var qblock: array<u32, 2>;
+    var qblock: vec2<u32>;
     var aqep: array<i32, 24>;
-    var aqblock: array<u32, 2>;
+    var aqblock: vec2<u32>;
 
     for (var i = 0u; i < 8u; i++) {
         qep[i] = (*params).qep[i];
@@ -1026,7 +1026,7 @@ fn bc7_code_mode45(state: ptr<function, State>, params: ptr<function, Mode45Para
     bc7_code_qblock(state, &pos, aqblock, abits, 0u);
 }
 
-fn bc7_code_mode6(state: ptr<function, State>, qep: ptr<function, array<i32, 24>>, qblock: ptr<function, array<u32, 2>>) {
+fn bc7_code_mode6(state: ptr<function, State>, qep: ptr<function, array<i32, 24>>, qblock: ptr<function, vec2<u32>>) {
     bc7_code_apply_swap_mode456(qep, 4u, qblock, 4u);
 
     for (var k = 0u; k < 5u; k++) {
@@ -1051,7 +1051,7 @@ fn bc7_code_mode6(state: ptr<function, State>, qep: ptr<function, array<i32, 24>
     bc7_code_qblock(state, &pos, *qblock, 4u, 0u);
 }
 
-fn bc7_enc_mode01237_part_fast(qep: ptr<function, array<i32, 24>>, qblock: ptr<function, array<u32, 2>>, block: ptr<function, array<f32, 64>>, part_id: i32, mode: u32) -> f32 {
+fn bc7_enc_mode01237_part_fast(qep: ptr<function, array<i32, 24>>, qblock: ptr<function, vec2<u32>>, block: ptr<function, array<f32, 64>>, part_id: i32, mode: u32) -> f32 {
     let pattern = get_pattern(part_id);
     let bits = select(2u, 3u, mode == 0u || mode == 1u);
     let pairs = select(2u, 3u, mode == 0u || mode == 2u);
@@ -1078,7 +1078,7 @@ fn bc7_enc_mode01237(state: ptr<function, State>, block: ptr<function, array<f32
     let channels = select(3u, 4u, mode == 7u);
 
     var best_qep: array<i32, 24>;
-    var best_qblock: array<u32, 2>;
+    var best_qblock: vec2<u32>;
     var best_part_id = -1;
     var best_err = 3.40282347e38;
 
@@ -1087,7 +1087,7 @@ fn bc7_enc_mode01237(state: ptr<function, State>, block: ptr<function, array<f32
         part_id = select(part_id, part_id + 64, pairs == 3);
 
         var qep: array<i32, 24>;
-        var qblock: array<u32, 2>;
+        var qblock: vec2<u32>;
         let err = bc7_enc_mode01237_part_fast(&qep, &qblock, block, part_id, mode);
 
         if (err < best_err) {
@@ -1112,7 +1112,7 @@ fn bc7_enc_mode01237(state: ptr<function, State>, block: ptr<function, array<f32
         }
 
         var qep: array<i32, 24>;
-        var qblock: array<u32, 2>;
+        var qblock: vec2<u32>;
 
         ep_quant_dequant(&qep, &ep, mode, channels);
 
@@ -1216,7 +1216,7 @@ fn bc7_enc_mode45_candidate(best_candidate: ptr<function, Mode45Parameters>, bes
     var qep: array<i32, 24>;
     ep_quant_dequant(&qep, &ep, mode, 3u);
 
-    var qblock: array<u32, 2>;
+    var qblock: vec2<u32>;
     var err = block_quant(&qblock, &candidate_block, bits, &ep, 0u, 3u);
 
     // Refine
@@ -1233,8 +1233,8 @@ fn bc7_enc_mode45_candidate(best_candidate: ptr<function, Mode45Parameters>, bes
     }
 
     // Encoding selected channel
-    var aqep: array<i32, 2>;
-    var aqblock: array<u32, 2>;
+    var aqep: vec2<i32>;
+    var aqblock: vec2<u32>;
 
     err += opt_channel(&aqblock, &aqep, &channel_data, abits, aepbits);
 
@@ -1295,7 +1295,7 @@ fn bc7_enc_mode6(state: ptr<function, State>, block: ptr<function, array<f32, 64
     var qep: array<i32, 24>;
     ep_quant_dequant(&qep, &ep, mode, settings.channels);
 
-    var qblock: array<u32, 2>;
+    var qblock: vec2<u32>;
     var err = block_quant(&qblock, block, bits, &ep, 0u, settings.channels);
 
     let refine_iterations = settings.refine_iterations[mode];

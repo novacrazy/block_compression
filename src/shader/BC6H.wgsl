@@ -87,7 +87,7 @@ fn data_shl_1bit_from(state: ptr<function, State>, from_bits: u32) {
     }
 }
 
-fn bc7_code_qblock(state: ptr<function, State>, qpos: ptr<function, u32>, qblock: array<u32, 2>, bits: u32, flips: u32) {
+fn bc7_code_qblock(state: ptr<function, State>, qpos: ptr<function, u32>, qblock: vec2<u32>, bits: u32, flips: u32) {
     let levels = 1u << bits;
     var flips_shifted = flips;
 
@@ -110,7 +110,7 @@ fn bc7_code_qblock(state: ptr<function, State>, qpos: ptr<function, u32>, qblock
     }
 }
 
-fn bc7_code_apply_swap_mode456(qep: ptr<function, array<i32, 24>>, channels: u32, qblock: ptr<function, array<u32, 2>>, bits: u32) {
+fn bc7_code_apply_swap_mode456(qep: ptr<function, array<i32, 24>>, channels: u32, qblock: ptr<function, vec2<u32>>, bits: u32) {
     let levels = 1u << bits;
 
     if (((*qblock)[0] & 15u) >= levels / 2u) {

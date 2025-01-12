@@ -100,14 +100,14 @@ fn load_block_alpha_4bit(xx: u32, yy: u32) -> vec2<u32> {
     return alpha_bits;
 }
 
-fn store_data_2(block_width: u32, xx: u32, yy: u32, data: array<u32, 2>) {
+fn store_data_2(block_width: u32, xx: u32, yy: u32, data: vec2<u32>) {
     let offset = uniforms.blocks_offset + (yy * block_width * 2u + xx * 2u);
 
     block_buffer[offset + 0] = data[0];
     block_buffer[offset + 1] = data[1];
 }
 
-fn store_data_4(block_width: u32, xx: u32, yy: u32, data: array<u32, 4>) {
+fn store_data_4(block_width: u32, xx: u32, yy: u32, data: vec4<u32>) {
     let offset = uniforms.blocks_offset + (yy * block_width * 4u + xx * 4u);
 
     block_buffer[offset + 0] = data[0];
@@ -118,7 +118,7 @@ fn store_data_4(block_width: u32, xx: u32, yy: u32, data: array<u32, 4>) {
 
 fn compute_covar_dc(
     covar: ptr<function, array<f32, 6>>,
-    dc: ptr<function, array<f32, 3>>,
+    dc: ptr<function, vec3<f32>>,
     block: ptr<function, array<f32, 64>>,
 ) {
     for (var p = 0u; p < 3u; p++) {
@@ -157,14 +157,14 @@ fn compute_covar_dc(
     (*covar)[5] = covar5;
 }
 
-fn ssymv(result: ptr<function, array<f32, 3>>, covar: ptr<function, array<f32, 6>>, a_vector: ptr<function, array<f32, 3>>) {
+fn ssymv(result: ptr<function, vec3<f32>>, covar: ptr<function, array<f32, 6>>, a_vector: ptr<function, vec3<f32>>) {
     (*result)[0] = (*covar)[0] * (*a_vector)[0] + (*covar)[1] * (*a_vector)[1] + (*covar)[2] * (*a_vector)[2];
     (*result)[1] = (*covar)[1] * (*a_vector)[0] + (*covar)[3] * (*a_vector)[1] + (*covar)[4] * (*a_vector)[2];
     (*result)[2] = (*covar)[2] * (*a_vector)[0] + (*covar)[4] * (*a_vector)[1] + (*covar)[5] * (*a_vector)[2];
 }
 
-fn compute_axis3(axis: ptr<function, array<f32, 3>>, covar: ptr<function, array<f32, 6>>, powerIterations: i32) {
-    var a_vector = array<f32, 3>(1.0, 1.0, 1.0);
+fn compute_axis3(axis: ptr<function, vec3<f32>>, covar: ptr<function, array<f32, 6>>, powerIterations: i32) {
+    var a_vector = vec3<f32>(1.0, 1.0, 1.0);
 
     for (var i = 0; i < powerIterations; i++) {
         ssymv(axis, covar, &a_vector);
@@ -192,11 +192,11 @@ fn compute_axis3(axis: ptr<function, array<f32, 3>>, covar: ptr<function, array<
 }
 
 fn pick_endpoints(
-    c0: ptr<function, array<f32, 3>>,
-    c1: ptr<function, array<f32, 3>>,
+    c0: ptr<function, vec3<f32>>,
+    c1: ptr<function, vec3<f32>>,
     block: ptr<function, array<f32, 64>>,
-    axis: ptr<function, array<f32, 3>>,
-    dc: ptr<function, array<f32, 3>>
+    axis: ptr<function, vec3<f32>>,
+    dc: ptr<function, vec3<f32>>
 ) {
     var min_dot = 256.0 * 256.0;
     var max_dot = 0.0;
@@ -230,7 +230,7 @@ fn pick_endpoints(
     }
 }
 
-fn dec_rgb565(c: ptr<function, array<f32, 3>>, p: i32) {
+fn dec_rgb565(c: ptr<function, vec3<f32>>, p: i32) {
     let c2 = (p >> 0) & 31;
     let c1 = (p >> 5) & 63;
     let c0 = (p >> 11) & 31;
@@ -240,7 +240,7 @@ fn dec_rgb565(c: ptr<function, array<f32, 3>>, p: i32) {
     (*c)[2] = f32((c2 << 3) + (c2 >> 2));
 }
 
-fn enc_rgb565(c: ptr<function, array<f32, 3>>) -> i32 {
+fn enc_rgb565(c: ptr<function, vec3<f32>>) -> i32 {
     let r = i32((*c)[0]);
     let g = i32((*c)[1]);
     let b = i32((*c)[2]);
@@ -249,12 +249,12 @@ fn enc_rgb565(c: ptr<function, array<f32, 3>>) -> i32 {
 }
 
 fn fast_quant(block: ptr<function, array<f32, 64>>, p0: i32, p1: i32) -> u32 {
-    var c0: array<f32, 3>;
-    var c1: array<f32, 3>;
+    var c0: vec3<f32>;
+    var c1: vec3<f32>;
     dec_rgb565(&c0, p0);
     dec_rgb565(&c1, p1);
 
-    var dir: array<f32, 3>;
+    var dir: vec3<f32>;
     for (var p = 0u; p < 3u; p++) {
         dir[p] = c1[p] - c0[p];
     }
@@ -291,9 +291,9 @@ fn fast_quant(block: ptr<function, array<f32, 64>>, p0: i32, p1: i32) -> u32 {
     return bits;
 }
 
-fn bc1_refine(pe: ptr<function, array<i32, 2>>, block: ptr<function, array<f32, 64>>, bits: u32, dc: ptr<function, array<f32, 3>>) {
-    var c0: array<f32, 3>;
-    var c1: array<f32, 3>;
+fn bc1_refine(pe: ptr<function, vec2<i32>>, block: ptr<function, array<f32, 64>>, bits: u32, dc: ptr<function, vec3<f32>>) {
+    var c0: vec3<f32>;
+    var c1: vec3<f32>;
 
     if ((bits ^ (bits * 4u)) < 4u) {
         for (var p = 0u; p < 3u; p++) {
@@ -301,7 +301,7 @@ fn bc1_refine(pe: ptr<function, array<i32, 2>>, block: ptr<function, array<f32, 
             c1[p] = (*dc)[p];
         }
     } else {
-        var atb1: array<f32, 3>;
+        var atb1: vec3<f32>;
         var sum_q = 0.0;
         var sum_qq = 0.0;
         var shifted_bits = bits;
@@ -321,8 +321,8 @@ fn bc1_refine(pe: ptr<function, array<i32, 2>>, block: ptr<function, array<f32, 
             }
         }
 
-        var sum: array<f32, 3>;
-        var atb2: array<f32, 3>;
+        var sum: vec3<f32>;
+        var atb2: vec3<f32>;
 
         for (var p = 0u; p < 3u; p++) {
             sum[p] = (*dc)[p] * 16.0;
@@ -361,7 +361,7 @@ fn compress_block_bc1_core(block: ptr<function, array<f32, 64>>) -> vec2<u32> {
     let refine_iterations = 1;
 
     var covar: array<f32, 6>;
-    var dc: array<f32, 3>;
+    var dc: vec3<f32>;
     compute_covar_dc(&covar, &dc, block);
 
     const eps = 0.001;
@@ -369,14 +369,14 @@ fn compress_block_bc1_core(block: ptr<function, array<f32, 64>>) -> vec2<u32> {
     covar[3] += eps;
     covar[5] += eps;
 
-    var axis: array<f32, 3>;
+    var axis: vec3<f32>;
     compute_axis3(&axis, &covar, power_iterations);
 
-    var c0: array<f32, 3>;
-    var c1: array<f32, 3>;
+    var c0: vec3<f32>;
+    var c1: vec3<f32>;
     pick_endpoints(&c0, &c1, block, &axis, &dc);
 
-    var p: array<i32, 2>;
+    var p: vec2<i32>;
     p[0] = enc_rgb565(&c0);
     p[1] = enc_rgb565(&c1);
     if (p[0] < p[1]) {
@@ -405,7 +405,7 @@ fn compress_block_bc1_core(block: ptr<function, array<f32, 64>>) -> vec2<u32> {
 }
 
 fn compress_block_bc3_alpha(block: ptr<function, array<f32, 64>>) -> vec2<u32> {
-    var ep = array<f32, 2>(255.0, 0.0);
+    var ep = vec2<f32>(255.0, 0.0);
 
     // Find min/max endpoints using block[48] to block[63] for alpha
     for (var k: u32 = 0u; k < 16u; k++) {
@@ -418,7 +418,7 @@ fn compress_block_bc3_alpha(block: ptr<function, array<f32, 64>>) -> vec2<u32> {
         ep[1] = ep[0] + 0.1;
     }
 
-    var qblock: array<u32, 2>;
+    var qblock: vec2<u32>;
     let scale = 7.0 / (ep[1] - ep[0]);
 
     for (var k: u32 = 0u; k < 16u; k++) {
@@ -461,7 +461,7 @@ fn compress_bc1(@builtin(global_invocation_id) global_id: vec3<u32>) {
     }
 
     var block: array<f32, 64>;
-    var compressed_data: array<u32, 2>;
+    var compressed_data: vec2<u32>;
 
     load_block_interleaved_rgba(&block, xx, yy);
 
@@ -486,7 +486,7 @@ fn compress_bc2(@builtin(global_invocation_id) global_id: vec3<u32>) {
     }
 
     var block: array<f32, 64>;
-    var compressed_data: array<u32, 4>;
+    var compressed_data: vec4<u32>;
 
     let alpha_result = load_block_alpha_4bit(xx, yy);
     compressed_data[0] = alpha_result[0];
@@ -515,7 +515,7 @@ fn compress_bc3(@builtin(global_invocation_id) global_id: vec3<u32>) {
     }
 
     var block: array<f32, 64>;
-    var compressed_data: array<u32, 4>;
+    var compressed_data: vec4<u32>;
 
     load_block_interleaved_rgba(&block, xx, yy);
 
@@ -544,7 +544,7 @@ fn compress_bc4(@builtin(global_invocation_id) global_id: vec3<u32>) {
     }
 
     var block: array<f32, 64>;
-    var compressed_data: array<u32, 2>;
+    var compressed_data: vec2<u32>;
 
     load_block_r_8bit(&block, xx, yy);
 
@@ -569,7 +569,7 @@ fn compress_bc5(@builtin(global_invocation_id) global_id: vec3<u32>) {
     }
 
     var block: array<f32, 64>;
-    var compressed_data: array<u32, 4>;
+    var compressed_data: vec4<u32>;
 
     load_block_r_8bit(&block, xx, yy);
 
