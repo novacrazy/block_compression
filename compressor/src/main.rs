@@ -9,9 +9,9 @@ use wgpu::{
     util::{DeviceExt, TextureDataOrder},
     Backends, Buffer, BufferDescriptor, BufferUsages, CommandEncoderDescriptor,
     ComputePassDescriptor, ComputePassTimestampWrites, Device, DeviceDescriptor, Dx12Compiler,
-    Extent3d, Features, Gles3MinorVersion, Instance, InstanceDescriptor, InstanceFlags, Limits,
-    Maintain, MapMode, MemoryHints, QueryType, Queue, Texture, TextureDescriptor, TextureDimension,
-    TextureFormat, TextureUsages, TextureViewDescriptor,
+    Error, Extent3d, Features, Gles3MinorVersion, Instance, InstanceDescriptor, InstanceFlags,
+    Limits, Maintain, MapMode, MemoryHints, QueryType, Queue, Texture, TextureDescriptor,
+    TextureDimension, TextureFormat, TextureUsages, TextureViewDescriptor,
 };
 
 fn main() {
@@ -130,6 +130,7 @@ fn create_resources() -> (Arc<Device>, Arc<Queue>) {
         None,
     ))
     .expect("Failed to create device");
+    device.on_uncaptured_error(Box::new(error_handler));
 
     (Arc::new(device), Arc::new(queue))
 }
@@ -363,4 +364,23 @@ fn parse_args() -> Option<(CompressionVariant, String)> {
     let file_name = args[2].clone();
 
     Some((variant, file_name))
+}
+
+pub fn error_handler(error: Error) {
+    let (message_type, message) = match error {
+        Error::OutOfMemory { source } => ("OutOfMemory", source.to_string()),
+        Error::Validation {
+            source,
+            description,
+        } => ("Validation", format!("{source}: {description}")),
+        Error::Internal {
+            source,
+            description,
+        } => ("Internal", format!("{source}: {description}")),
+    };
+
+    println!("wgpu [{message_type}] [error]: {message}");
+
+    #[cfg(debug_assertions)]
+    panic!("WGPU error found");
 }

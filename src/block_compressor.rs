@@ -369,13 +369,6 @@ impl BlockCompressor {
             total_size
         );
 
-        let block_buffer = self.device.create_buffer(&BufferDescriptor {
-            label: Some("block buffer"),
-            size: variant.blocks_byte_size(width, height) as u64,
-            usage: BufferUsages::COPY_DST | BufferUsages::COPY_SRC | BufferUsages::STORAGE,
-            mapped_at_creation: false,
-        });
-
         let bind_group_layout = self
             .bind_group_layouts
             .get(&variant)
@@ -414,7 +407,7 @@ impl BlockCompressor {
                     },
                     BindGroupEntry {
                         binding: 1,
-                        resource: block_buffer.as_entire_binding(),
+                        resource: buffer.as_entire_binding(),
                     },
                     BindGroupEntry {
                         binding: 2,
@@ -436,7 +429,7 @@ impl BlockCompressor {
                     },
                     BindGroupEntry {
                         binding: 1,
-                        resource: block_buffer.as_entire_binding(),
+                        resource: buffer.as_entire_binding(),
                     },
                     BindGroupEntry {
                         binding: 2,
