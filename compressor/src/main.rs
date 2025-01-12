@@ -6,12 +6,12 @@ use ddsfile::{AlphaMode, D3D10ResourceDimension, Dds, DxgiFormat, NewDxgiParams}
 use image::{EncodableLayout, ImageReader};
 use pollster::block_on;
 use wgpu::{
-    util::{DeviceExt, TextureDataOrder},
-    Backends, Buffer, BufferDescriptor, BufferUsages, CommandEncoderDescriptor,
-    ComputePassDescriptor, ComputePassTimestampWrites, Device, DeviceDescriptor, Dx12Compiler,
-    Error, Extent3d, Features, Gles3MinorVersion, Instance, InstanceDescriptor, InstanceFlags,
-    Limits, Maintain, MapMode, MemoryHints, QueryType, Queue, Texture, TextureDescriptor,
-    TextureDimension, TextureFormat, TextureUsages, TextureViewDescriptor,
+    util::{backend_bits_from_env, dx12_shader_compiler_from_env, DeviceExt, TextureDataOrder},
+    Buffer, BufferDescriptor, BufferUsages, CommandEncoderDescriptor, ComputePassDescriptor,
+    ComputePassTimestampWrites, Device, DeviceDescriptor, Dx12Compiler, Error, Extent3d, Features,
+    Gles3MinorVersion, Instance, InstanceDescriptor, InstanceFlags, Limits, Maintain, MapMode,
+    MemoryHints, QueryType, Queue, Texture, TextureDescriptor, TextureDimension, TextureFormat,
+    TextureUsages, TextureViewDescriptor,
 };
 
 fn main() {
@@ -106,10 +106,17 @@ fn main() {
 }
 
 fn create_resources() -> (Arc<Device>, Arc<Queue>) {
+    let backends = backend_bits_from_env().unwrap_or_default();
+    let dx12_shader_compiler = dx12_shader_compiler_from_env().unwrap_or(Dx12Compiler::Dxc {
+        dxil_path: None,
+        dxc_path: None,
+    });
+    let flags = InstanceFlags::from_build_config().with_env();
+
     let instance = Instance::new(InstanceDescriptor {
-        backends: Backends::all(),
-        flags: InstanceFlags::default(),
-        dx12_shader_compiler: Dx12Compiler::default(),
+        backends,
+        flags,
+        dx12_shader_compiler,
         gles_minor_version: Gles3MinorVersion::default(),
     });
 
