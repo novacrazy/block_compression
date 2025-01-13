@@ -15,8 +15,8 @@ fn test_multi_task_compression(variant: CompressionVariant, settings: Option<Set
     let (device, queue) = create_wgpu_resources();
     let mut block_compressor = BlockCompressor::new(device.clone(), queue.clone());
 
-    let brick_texture = read_image_and_create_texture(&device, &queue, BRICK_FILE_PATH);
-    let marble_texture = read_image_and_create_texture(&device, &queue, MARBLE_FILE_PATH);
+    let (brick_texture, _) = read_image_and_create_texture(&device, &queue, BRICK_FILE_PATH);
+    let (marble_texture, _) = read_image_and_create_texture(&device, &queue, MARBLE_FILE_PATH);
 
     let bricks_size = variant.blocks_byte_size(brick_texture.width(), brick_texture.height());
     let marble_size = variant.blocks_byte_size(marble_texture.width(), marble_texture.height());

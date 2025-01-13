@@ -1,3 +1,5 @@
+pub mod metrics;
+
 use std::sync::Arc;
 
 use image::{EncodableLayout, ImageReader};
@@ -66,7 +68,11 @@ pub fn error_handler(error: Error) {
     panic!("wgpu [{message_type}] [error]: {message}");
 }
 
-pub fn read_image_and_create_texture(device: &Device, queue: &Queue, file_path: &str) -> Texture {
+pub fn read_image_and_create_texture(
+    device: &Device,
+    queue: &Queue,
+    file_path: &str,
+) -> (Texture, Vec<u8>) {
     let image = ImageReader::open(file_path)
         .expect("can't open input image")
         .decode()
@@ -76,7 +82,7 @@ pub fn read_image_and_create_texture(device: &Device, queue: &Queue, file_path: 
     let width = rgba_image.width();
     let height = rgba_image.height();
 
-    device.create_texture_with_data(
+    let texture = device.create_texture_with_data(
         queue,
         &TextureDescriptor {
             label: Some(file_path),
@@ -94,7 +100,9 @@ pub fn read_image_and_create_texture(device: &Device, queue: &Queue, file_path: 
         },
         TextureDataOrder::LayerMajor,
         rgba_image.as_bytes(),
-    )
+    );
+
+    (texture, rgba_image.to_vec())
 }
 
 pub fn create_blocks_buffer(device: &Device, size: u64) -> Buffer {
