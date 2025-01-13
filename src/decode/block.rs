@@ -192,16 +192,11 @@ fn decode_sharp_alpha_block(
     decompressed_block: &mut [u8],
     destination_pitch: usize,
 ) {
-    let alpha: [u16; 4] = [
-        u16::from_le_bytes([compressed_block[0], compressed_block[1]]),
-        u16::from_le_bytes([compressed_block[2], compressed_block[3]]),
-        u16::from_le_bytes([compressed_block[4], compressed_block[5]]),
-        u16::from_le_bytes([compressed_block[6], compressed_block[7]]),
-    ];
-
     for i in 0..4 {
         for j in 0..4 {
-            let alpha_value = ((alpha[i] >> (4 * j)) & 0x0F) as u8;
+            let byte_index = i * 2 + (j / 2);
+            let shift = (j % 2) * 4;
+            let alpha_value = (compressed_block[byte_index] >> shift) & 0x0F;
             decompressed_block[i * destination_pitch + j * 4 + 3] = alpha_value * 17;
         }
     }
