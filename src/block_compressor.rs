@@ -17,8 +17,11 @@ use crate::{
 #[derive(Copy, Clone, Zeroable, Pod)]
 #[repr(C)]
 struct Uniforms {
+    /// The width of the image data.
     width: u32,
+    /// The height of the image data.
     height: u32,
+    /// Start of the blocks data in u32 elements.
     blocks_offset: u32,
 }
 
@@ -528,7 +531,7 @@ impl BlockCompressor {
             let uniforms = Uniforms {
                 width: task.width,
                 height: task.height,
-                blocks_offset: task.buffer_offset,
+                blocks_offset: task.buffer_offset / 4,
             };
 
             self.scratch_buffer

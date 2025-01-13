@@ -21,10 +21,14 @@ maintenance = { status = "actively-developed" }
 bytemuck = { workspace = true, features = ["derive"] }
 wgpu = { workspace = true }
 
+[dev-dependencies]
+image = { workspace = true, features = ["png"] }
+pollster = { workspace = true }
+
 [workspace.dependencies]
 bytemuck = "1.21"
 ddsfile = "0.5"
-image = "0.25"
+image = { version = "0.25", default-features = false }
 pollster = "0.4"
 wgpu = "23"
 

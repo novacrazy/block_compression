@@ -10,6 +10,6 @@ rust-version.workspace = true
 block_compression = { path = ".." }
 bytemuck = { workspace = true }
 ddsfile = { workspace = true }
-image = { workspace = true }
+image = { workspace = true, features = ["bmp", "png", "tga"] }
 pollster = { workspace = true }
 wgpu = { workspace = true }

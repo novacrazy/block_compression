@@ -227,9 +227,9 @@ fn compress(compressor: &mut BlockCompressor, device: &Device, queue: &Queue) {
         let buffer_slice = timestamp_readback_buffer.slice(..);
 
         let (tx, rx) = std::sync::mpsc::channel();
-        buffer_slice.map_async(wgpu::MapMode::Read, move |v| tx.send(v).unwrap());
+        buffer_slice.map_async(MapMode::Read, move |v| tx.send(v).unwrap());
 
-        device.poll(wgpu::Maintain::Wait);
+        device.poll(Maintain::Wait);
 
         match rx.recv() {
             Ok(Ok(())) => {
@@ -386,8 +386,5 @@ pub fn error_handler(error: Error) {
         } => ("Internal", format!("{source}: {description}")),
     };
 
-    println!("wgpu [{message_type}] [error]: {message}");
-
-    #[cfg(debug_assertions)]
-    panic!("WGPU error found");
+    panic!("wgpu [{message_type}] [error]: {message}");
 }
