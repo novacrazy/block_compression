@@ -5,10 +5,10 @@ use self::block::{
 };
 use crate::CompressionVariant;
 
-trait BlockDecoder {
+/// Trait to decode a BC variant into RGBA data.
+trait BlockRgbaDecoder {
     fn decode_block(compressed: &[u8], decompressed: &mut [u8], pitch: usize);
     fn block_byte_size() -> u32;
-    fn bytes_per_pixel() -> u32;
 }
 
 struct BC1Decoder;
@@ -17,7 +17,7 @@ struct BC3Decoder;
 struct BC4Decoder;
 struct BC5Decoder;
 
-impl BlockDecoder for BC1Decoder {
+impl BlockRgbaDecoder for BC1Decoder {
     #[inline(always)]
     fn decode_block(compressed: &[u8], decompressed: &mut [u8], pitch: usize) {
         decode_block_bc1(compressed, decompressed, pitch)
@@ -26,13 +26,9 @@ impl BlockDecoder for BC1Decoder {
     fn block_byte_size() -> u32 {
         CompressionVariant::BC1.block_byte_size()
     }
-
-    fn bytes_per_pixel() -> u32 {
-        CompressionVariant::BC1.bytes_per_pixel()
-    }
 }
 
-impl BlockDecoder for BC2Decoder {
+impl BlockRgbaDecoder for BC2Decoder {
     #[inline(always)]
     fn decode_block(compressed: &[u8], decompressed: &mut [u8], pitch: usize) {
         decode_block_bc2(compressed, decompressed, pitch)
@@ -41,13 +37,9 @@ impl BlockDecoder for BC2Decoder {
     fn block_byte_size() -> u32 {
         CompressionVariant::BC2.block_byte_size()
     }
-
-    fn bytes_per_pixel() -> u32 {
-        CompressionVariant::BC2.bytes_per_pixel()
-    }
 }
 
-impl BlockDecoder for BC3Decoder {
+impl BlockRgbaDecoder for BC3Decoder {
     #[inline(always)]
     fn decode_block(compressed: &[u8], decompressed: &mut [u8], pitch: usize) {
         decode_block_bc3(compressed, decompressed, pitch)
@@ -56,43 +48,61 @@ impl BlockDecoder for BC3Decoder {
     fn block_byte_size() -> u32 {
         CompressionVariant::BC3.block_byte_size()
     }
-
-    fn bytes_per_pixel() -> u32 {
-        CompressionVariant::BC3.bytes_per_pixel()
-    }
 }
 
-impl BlockDecoder for BC4Decoder {
+impl BlockRgbaDecoder for BC4Decoder {
     #[inline(always)]
     fn decode_block(compressed: &[u8], decompressed: &mut [u8], pitch: usize) {
-        decode_block_bc4(compressed, decompressed, pitch)
+        const PITCH: usize = 4;
+        let mut buffer = [0u8; 16];
+        decode_block_bc4(compressed, &mut buffer, 4);
+
+        // Convert R to RGBA
+        for y in 0..4 {
+            for x in 0..4 {
+                let out_pos = y * pitch + x * PITCH;
+                let in_pos = y * PITCH + x;
+
+                decompressed[out_pos] = buffer[in_pos];
+                decompressed[out_pos + 1] = 0;
+                decompressed[out_pos + 2] = 0;
+                decompressed[out_pos + 3] = 0;
+            }
+        }
     }
 
     fn block_byte_size() -> u32 {
         CompressionVariant::BC4.block_byte_size()
     }
-
-    fn bytes_per_pixel() -> u32 {
-        CompressionVariant::BC4.bytes_per_pixel()
-    }
 }
 
-impl BlockDecoder for BC5Decoder {
+impl BlockRgbaDecoder for BC5Decoder {
     #[inline(always)]
     fn decode_block(compressed: &[u8], decompressed: &mut [u8], pitch: usize) {
-        decode_block_bc5(compressed, decompressed, pitch)
+        const PITCH: usize = 8;
+        let mut buffer = [0u8; 32];
+        decode_block_bc5(compressed, &mut buffer, PITCH);
+
+        // Convert RG to RGBA
+        for y in 0..4 {
+            for x in 0..4 {
+                let out_pos = y * pitch + x * 4;
+                let in_pos = y * PITCH + x * 2;
+
+                decompressed[out_pos] = buffer[in_pos];
+                decompressed[out_pos + 1] = buffer[in_pos + 1];
+                decompressed[out_pos + 2] = 0;
+                decompressed[out_pos + 3] = 0;
+            }
+        }
     }
 
     fn block_byte_size() -> u32 {
         CompressionVariant::BC5.block_byte_size()
     }
-
-    fn bytes_per_pixel() -> u32 {
-        CompressionVariant::BC5.bytes_per_pixel()
-    }
 }
 
-fn decompress<D: BlockDecoder>(
+fn decompress<D: BlockRgbaDecoder>(
     width: u32,
     height: u32,
     input_bitstream: &[u8],
@@ -101,7 +111,7 @@ fn decompress<D: BlockDecoder>(
     let blocks_x = (width + 3) / 4;
     let blocks_y = (height + 3) / 4;
     let block_byte_size = D::block_byte_size() as usize;
-    let row_pitch = width as usize * D::bytes_per_pixel() as usize;
+    let output_row_pitch = width as usize * 4; // Always RGBA
 
     for by in 0..blocks_y {
         for bx in 0..blocks_x {
@@ -112,20 +122,20 @@ fn decompress<D: BlockDecoder>(
                 break;
             }
 
-            let output_offset = (by * 4 * row_pitch as u32 + bx * 16) as usize;
+            let output_offset = (by * 4 * output_row_pitch as u32 + bx * 16) as usize;
 
             if output_offset < output_bitstream.len() {
                 D::decode_block(
                     &input_bitstream[block_offset..block_offset + block_byte_size],
                     &mut output_bitstream[output_offset..],
-                    row_pitch,
+                    output_row_pitch,
                 );
             }
         }
     }
 }
 
-pub fn decompress_blocks(
+pub fn decompress_blocks_as_rgba(
     variant: CompressionVariant,
     width: u32,
     height: u32,

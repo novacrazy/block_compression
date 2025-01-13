@@ -1,4 +1,6 @@
-use block_compression::{decode::decompress_blocks, BlockCompressor, CompressionVariant, Settings};
+use block_compression::{
+    decode::decompress_blocks_as_rgba, BlockCompressor, CompressionVariant, Settings,
+};
 use image::{codecs::png::PngEncoder, ExtendedColorType, ImageEncoder};
 use wgpu::{
     CommandEncoderDescriptor, ComputePassDescriptor, TextureFormat::Rgba8Unorm,
@@ -198,7 +200,7 @@ fn calculate_psnr_for_image(
 
     let size = texture.width() * texture.height() * 4;
     let mut decompressed_data = vec![0; size as usize];
-    decompress_blocks(
+    decompress_blocks_as_rgba(
         variant,
         texture.width(),
         texture.height(),

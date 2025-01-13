@@ -77,18 +77,6 @@ impl CompressionVariant {
         }
     }
 
-    const fn bytes_per_pixel(self) -> u32 {
-        match self {
-            CompressionVariant::BC1 => 4,
-            CompressionVariant::BC2 => 4,
-            CompressionVariant::BC3 => 4,
-            CompressionVariant::BC4 => 1,
-            CompressionVariant::BC5 => 2,
-            CompressionVariant::BC6H => 4,
-            CompressionVariant::BC7 => 4,
-        }
-    }
-
     const fn name(self) -> &'static str {
         match self {
             CompressionVariant::BC1 => "bc1",
