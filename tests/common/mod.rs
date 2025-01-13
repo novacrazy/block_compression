@@ -1,5 +1,3 @@
-pub mod metrics;
-
 use std::sync::Arc;
 
 use image::{EncodableLayout, ImageReader};
