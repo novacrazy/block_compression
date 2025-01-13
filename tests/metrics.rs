@@ -52,7 +52,7 @@ pub fn calculate_image_metrics(
     let pixel_count = (width * height) as f64;
 
     for index in (0..original.len()).step_by(4) {
-        for channel in 0..4 {
+        for channel in 0..channels as usize {
             let orig = if channel < 3 {
                 srgb_to_linear(original[index + channel])
             } else {
@@ -230,7 +230,25 @@ fn psnr_bc1() {
 }
 
 #[test]
+fn psnr_bc2() {
+    calculate_psnr_for_image(BRICK_FILE_PATH, CompressionVariant::BC2, 4, None);
+    calculate_psnr_for_image(MARBLE_FILE_PATH, CompressionVariant::BC2, 4, None);
+}
+
+#[test]
 fn psnr_bc3() {
     calculate_psnr_for_image(BRICK_FILE_PATH, CompressionVariant::BC3, 4, None);
     calculate_psnr_for_image(MARBLE_FILE_PATH, CompressionVariant::BC3, 4, None);
+}
+
+#[test]
+fn psnr_bc4() {
+    calculate_psnr_for_image(BRICK_FILE_PATH, CompressionVariant::BC4, 1, None);
+    calculate_psnr_for_image(MARBLE_FILE_PATH, CompressionVariant::BC4, 1, None);
+}
+
+#[test]
+fn psnr_bc5() {
+    calculate_psnr_for_image(BRICK_FILE_PATH, CompressionVariant::BC5, 2, None);
+    calculate_psnr_for_image(MARBLE_FILE_PATH, CompressionVariant::BC5, 2, None);
 }
