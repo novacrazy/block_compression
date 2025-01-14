@@ -1,7 +1,8 @@
 use block_compression::{
-    decode::decompress_blocks_as_rgba, BlockCompressor, CompressionVariant, Settings,
+    decode::decompress_blocks_as_rgba, BC7Settings, BlockCompressor, CompressionVariant, Settings,
 };
-use image::{codecs::png::PngEncoder, ExtendedColorType, ImageEncoder};
+use image::{codecs::png::PngEncoder, ExtendedColorType, ImageEncoder, ImageError::Encoding};
+use intel_tex_2::{bc1, bc3, bc7, bc7::EncodeSettings, RgbaSurface};
 use wgpu::{
     CommandEncoderDescriptor, ComputePassDescriptor, TextureFormat::Rgba8Unorm,
     TextureViewDescriptor,
@@ -122,7 +123,7 @@ fn srgb_to_linear(srgb: u8) -> f64 {
     }
 }
 
-fn print_metrics(name: &str, metrics: PsnrResult) {
+fn print_metrics(name: &str, metrics: &PsnrResult) {
     println!("-----------------------");
     println!("Image name: {}", name);
     println!("Overall PSNR: {:.2} dB", metrics.overall_psnr);
@@ -154,12 +155,72 @@ fn save_png(filename: &str, data: &[u8], width: u32, height: u32) {
         .unwrap();
 }
 
-fn calculate_psnr_for_image(
+fn compress_image_reference(
+    variant: CompressionVariant,
+    settings: Option<Settings>,
+    width: u32,
+    height: u32,
+    data: &[u8],
+) -> Vec<u8> {
+    match (variant, settings) {
+        (CompressionVariant::BC1, None) => bc1::compress_blocks(&RgbaSurface {
+            data,
+            width,
+            height,
+            stride: width * 4,
+        }),
+        (CompressionVariant::BC3, None) => bc3::compress_blocks(&RgbaSurface {
+            data,
+            width,
+            height,
+            stride: width * 4,
+        }),
+        (CompressionVariant::BC7, Some(Settings::BC7(setting))) => {
+            let settings = if setting == BC7Settings::alpha_ultrafast() {
+                bc7::alpha_ultra_fast_settings()
+            } else if setting == BC7Settings::alpha_very_fast() {
+                bc7::alpha_very_fast_settings()
+            } else if setting == BC7Settings::alpha_fast() {
+                bc7::alpha_fast_settings()
+            } else if setting == BC7Settings::alpha_basic() {
+                bc7::alpha_basic_settings()
+            } else if setting == BC7Settings::alpha_slow() {
+                bc7::alpha_slow_settings()
+            } else if setting == BC7Settings::opaque_ultra_fast() {
+                bc7::opaque_ultra_fast_settings()
+            } else if setting == BC7Settings::opaque_very_fast() {
+                bc7::opaque_very_fast_settings()
+            } else if setting == BC7Settings::opaque_fast() {
+                bc7::opaque_fast_settings()
+            } else if setting == BC7Settings::opaque_basic() {
+                bc7::opaque_basic_settings()
+            } else if setting == BC7Settings::opaque_slow() {
+                bc7::opaque_slow_settings()
+            } else {
+                panic!("Unsupported BC7 setting");
+            };
+
+            bc7::compress_blocks(
+                &settings,
+                &RgbaSurface {
+                    data,
+                    width,
+                    height,
+                    stride: width * 4,
+                },
+            )
+        }
+        (_, _) => {
+            panic!("Unsupported variant or setting")
+        }
+    }
+}
+
+fn compress_image(
     image_path: &str,
     variant: CompressionVariant,
-    channels: u32,
     settings: Option<Settings>,
-) {
+) -> (u32, u32, Vec<u8>, Vec<u8>) {
     let (device, queue) = create_wgpu_resources();
     let mut block_compressor = BlockCompressor::new(device.clone(), queue.clone());
 
@@ -198,59 +259,244 @@ fn calculate_psnr_for_image(
 
     let blocks_data = download_blocks_data(&device, &queue, blocks);
 
-    let size = texture.width() * texture.height() * 4;
+    (
+        texture.width(),
+        texture.height(),
+        original_data,
+        blocks_data,
+    )
+}
+
+fn calculate_psnr(
+    variant: CompressionVariant,
+    channels: u32,
+    width: u32,
+    height: u32,
+    original_data: &[u8],
+    blocks_data: &[u8],
+) -> PsnrResult {
+    let size = width * height * 4;
     let mut decompressed_data = vec![0; size as usize];
-    decompress_blocks_as_rgba(
-        variant,
-        texture.width(),
-        texture.height(),
-        &blocks_data,
-        &mut decompressed_data,
-    );
+    decompress_blocks_as_rgba(variant, width, height, blocks_data, &mut decompressed_data);
 
-    let metrics = calculate_image_metrics(
-        &original_data,
-        &decompressed_data,
-        texture.width(),
-        texture.height(),
-        channels,
-    );
+    calculate_image_metrics(original_data, &decompressed_data, width, height, channels)
+}
 
+fn compare_psnr(
+    image_path: &str,
+    variant: CompressionVariant,
+    channels: u32,
+    settings: Option<Settings>,
+) {
     let image_name = std::path::Path::new(image_path)
         .file_name()
         .unwrap()
         .to_str()
         .unwrap();
 
-    print_metrics(image_name, metrics);
+    let (width, height, original_data, blocks_data) = compress_image(image_path, variant, settings);
+
+    let psnr = calculate_psnr(
+        variant,
+        channels,
+        width,
+        height,
+        &original_data,
+        &blocks_data,
+    );
+
+    let reference_block_data =
+        compress_image_reference(variant, settings, width, height, &original_data);
+
+    let reference_psnr = calculate_psnr(
+        variant,
+        channels,
+        width,
+        height,
+        &original_data,
+        &reference_block_data,
+    );
+
+    print_metrics(image_name, &psnr);
+
+    const DIFFERENCE: f64 = 0.01;
+
+    if reference_psnr.overall_psnr - psnr.overall_psnr > DIFFERENCE {
+        panic!(
+            "Significant overall PSNR difference for image `{image_name}`: {:.3} > {:.3}",
+            reference_psnr.overall_psnr, psnr.overall_psnr
+        );
+    }
 }
 
 #[test]
 fn psnr_bc1() {
-    calculate_psnr_for_image(BRICK_FILE_PATH, CompressionVariant::BC1, 3, None);
-    calculate_psnr_for_image(MARBLE_FILE_PATH, CompressionVariant::BC1, 3, None);
-}
-
-#[test]
-fn psnr_bc2() {
-    calculate_psnr_for_image(BRICK_FILE_PATH, CompressionVariant::BC2, 4, None);
-    calculate_psnr_for_image(MARBLE_FILE_PATH, CompressionVariant::BC2, 4, None);
+    compare_psnr(BRICK_FILE_PATH, CompressionVariant::BC1, 3, None);
+    compare_psnr(MARBLE_FILE_PATH, CompressionVariant::BC1, 3, None);
 }
 
 #[test]
 fn psnr_bc3() {
-    calculate_psnr_for_image(BRICK_FILE_PATH, CompressionVariant::BC3, 4, None);
-    calculate_psnr_for_image(MARBLE_FILE_PATH, CompressionVariant::BC3, 4, None);
+    compare_psnr(BRICK_FILE_PATH, CompressionVariant::BC3, 4, None);
+    compare_psnr(MARBLE_FILE_PATH, CompressionVariant::BC3, 4, None);
 }
 
 #[test]
-fn psnr_bc4() {
-    calculate_psnr_for_image(BRICK_FILE_PATH, CompressionVariant::BC4, 1, None);
-    calculate_psnr_for_image(MARBLE_FILE_PATH, CompressionVariant::BC4, 1, None);
+fn psnr_bc7_alpha_ultra_fast() {
+    compare_psnr(
+        BRICK_FILE_PATH,
+        CompressionVariant::BC7,
+        4,
+        Some(Settings::BC7(BC7Settings::alpha_ultrafast())),
+    );
+    compare_psnr(
+        MARBLE_FILE_PATH,
+        CompressionVariant::BC7,
+        4,
+        Some(Settings::BC7(BC7Settings::alpha_ultrafast())),
+    );
 }
 
 #[test]
-fn psnr_bc5() {
-    calculate_psnr_for_image(BRICK_FILE_PATH, CompressionVariant::BC5, 2, None);
-    calculate_psnr_for_image(MARBLE_FILE_PATH, CompressionVariant::BC5, 2, None);
+fn psnr_bc7_alpha_very_fast() {
+    compare_psnr(
+        BRICK_FILE_PATH,
+        CompressionVariant::BC7,
+        4,
+        Some(Settings::BC7(BC7Settings::alpha_very_fast())),
+    );
+    compare_psnr(
+        MARBLE_FILE_PATH,
+        CompressionVariant::BC7,
+        4,
+        Some(Settings::BC7(BC7Settings::alpha_very_fast())),
+    );
+}
+
+#[test]
+fn psnr_bc7_alpha_fast() {
+    compare_psnr(
+        BRICK_FILE_PATH,
+        CompressionVariant::BC7,
+        4,
+        Some(Settings::BC7(BC7Settings::alpha_fast())),
+    );
+    compare_psnr(
+        MARBLE_FILE_PATH,
+        CompressionVariant::BC7,
+        4,
+        Some(Settings::BC7(BC7Settings::alpha_fast())),
+    );
+}
+
+#[test]
+fn psnr_bc7_alpha_basic() {
+    compare_psnr(
+        BRICK_FILE_PATH,
+        CompressionVariant::BC7,
+        4,
+        Some(Settings::BC7(BC7Settings::alpha_basic())),
+    );
+    compare_psnr(
+        MARBLE_FILE_PATH,
+        CompressionVariant::BC7,
+        4,
+        Some(Settings::BC7(BC7Settings::alpha_basic())),
+    );
+}
+
+#[test]
+fn psnr_bc7_alpha_slow() {
+    compare_psnr(
+        BRICK_FILE_PATH,
+        CompressionVariant::BC7,
+        4,
+        Some(Settings::BC7(BC7Settings::alpha_slow())),
+    );
+    compare_psnr(
+        MARBLE_FILE_PATH,
+        CompressionVariant::BC7,
+        4,
+        Some(Settings::BC7(BC7Settings::alpha_slow())),
+    );
+}
+
+#[test]
+fn psnr_bc7_opaque_ultra_fast() {
+    compare_psnr(
+        BRICK_FILE_PATH,
+        CompressionVariant::BC7,
+        3,
+        Some(Settings::BC7(BC7Settings::opaque_ultra_fast())),
+    );
+    compare_psnr(
+        MARBLE_FILE_PATH,
+        CompressionVariant::BC7,
+        3,
+        Some(Settings::BC7(BC7Settings::opaque_ultra_fast())),
+    );
+}
+
+#[test]
+fn psnr_bc7_opaque_very_fast() {
+    compare_psnr(
+        BRICK_FILE_PATH,
+        CompressionVariant::BC7,
+        3,
+        Some(Settings::BC7(BC7Settings::opaque_very_fast())),
+    );
+    compare_psnr(
+        MARBLE_FILE_PATH,
+        CompressionVariant::BC7,
+        3,
+        Some(Settings::BC7(BC7Settings::opaque_very_fast())),
+    );
+}
+
+#[test]
+fn psnr_bc7_opaque_fast() {
+    compare_psnr(
+        BRICK_FILE_PATH,
+        CompressionVariant::BC7,
+        3,
+        Some(Settings::BC7(BC7Settings::opaque_fast())),
+    );
+    compare_psnr(
+        MARBLE_FILE_PATH,
+        CompressionVariant::BC7,
+        3,
+        Some(Settings::BC7(BC7Settings::opaque_fast())),
+    );
+}
+
+#[test]
+fn psnr_bc7_opaque_basic() {
+    compare_psnr(
+        BRICK_FILE_PATH,
+        CompressionVariant::BC7,
+        3,
+        Some(Settings::BC7(BC7Settings::opaque_basic())),
+    );
+    compare_psnr(
+        MARBLE_FILE_PATH,
+        CompressionVariant::BC7,
+        3,
+        Some(Settings::BC7(BC7Settings::opaque_basic())),
+    );
+}
+
+#[test]
+fn psnr_bc7_opaque_slow() {
+    compare_psnr(
+        BRICK_FILE_PATH,
+        CompressionVariant::BC7,
+        3,
+        Some(Settings::BC7(BC7Settings::opaque_slow())),
+    );
+    compare_psnr(
+        MARBLE_FILE_PATH,
+        CompressionVariant::BC7,
+        3,
+        Some(Settings::BC7(BC7Settings::opaque_slow())),
+    );
 }

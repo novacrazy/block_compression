@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 
 use image::{EncodableLayout, ImageReader};
 use pollster::block_on;
@@ -14,40 +14,44 @@ pub const BRICK_FILE_PATH: &str = "tests/images/brick.png";
 pub const MARBLE_FILE_PATH: &str = "tests/images/marble.png";
 
 pub fn create_wgpu_resources() -> (Arc<Device>, Arc<Queue>) {
-    let backends = backend_bits_from_env().unwrap_or_default();
-    let dx12_shader_compiler = dx12_shader_compiler_from_env().unwrap_or(Dx12Compiler::Dxc {
-        dxil_path: None,
-        dxc_path: None,
+    static CACHE: LazyLock<(Arc<Device>, Arc<Queue>)> = LazyLock::new(|| {
+        let backends = backend_bits_from_env().unwrap_or_default();
+        let dx12_shader_compiler = dx12_shader_compiler_from_env().unwrap_or(Dx12Compiler::Dxc {
+            dxil_path: None,
+            dxc_path: None,
+        });
+        let flags = InstanceFlags::from_build_config().with_env();
+
+        let instance = Instance::new(InstanceDescriptor {
+            backends,
+            flags,
+            dx12_shader_compiler,
+            gles_minor_version: Gles3MinorVersion::default(),
+        });
+
+        let adapter = block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+            power_preference: wgpu::PowerPreference::HighPerformance,
+            compatible_surface: None,
+            force_fallback_adapter: false,
+        }))
+        .expect("Failed to find an appropriate adapter");
+
+        let (device, queue) = block_on(adapter.request_device(
+            &DeviceDescriptor {
+                label: Some("main device"),
+                required_features: Features::TIMESTAMP_QUERY | Features::TEXTURE_COMPRESSION_BC,
+                required_limits: Limits::default(),
+                memory_hints: MemoryHints::default(),
+            },
+            None,
+        ))
+        .expect("Failed to create device");
+        device.on_uncaptured_error(Box::new(error_handler));
+
+        (Arc::new(device), Arc::new(queue))
     });
-    let flags = InstanceFlags::from_build_config().with_env();
 
-    let instance = Instance::new(InstanceDescriptor {
-        backends,
-        flags,
-        dx12_shader_compiler,
-        gles_minor_version: Gles3MinorVersion::default(),
-    });
-
-    let adapter = block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-        power_preference: wgpu::PowerPreference::HighPerformance,
-        compatible_surface: None,
-        force_fallback_adapter: false,
-    }))
-    .expect("Failed to find an appropriate adapter");
-
-    let (device, queue) = block_on(adapter.request_device(
-        &DeviceDescriptor {
-            label: Some("main device"),
-            required_features: Features::TIMESTAMP_QUERY | Features::TEXTURE_COMPRESSION_BC,
-            required_limits: Limits::default(),
-            memory_hints: MemoryHints::default(),
-        },
-        None,
-    ))
-    .expect("Failed to create device");
-    device.on_uncaptured_error(Box::new(error_handler));
-
-    (Arc::new(device), Arc::new(queue))
+    CACHE.clone()
 }
 
 pub fn error_handler(error: Error) {

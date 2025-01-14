@@ -88,7 +88,7 @@ impl BC6HSettings {
 }
 
 /// Encoding settings for BC7.
-#[derive(Copy, Clone, Debug, Pod, Zeroable)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Pod, Zeroable)]
 #[repr(C)]
 pub struct BC7Settings {
     refine_iterations: [u32; 8],

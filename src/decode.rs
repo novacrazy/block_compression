@@ -1,7 +1,8 @@
 mod block;
 
-use self::block::{
+pub use self::block::{
     decode_block_bc1, decode_block_bc2, decode_block_bc3, decode_block_bc4, decode_block_bc5,
+    decode_block_bc7,
 };
 use crate::CompressionVariant;
 
@@ -16,6 +17,7 @@ struct BC2Decoder;
 struct BC3Decoder;
 struct BC4Decoder;
 struct BC5Decoder;
+struct BC7Decoder;
 
 impl BlockRgbaDecoder for BC1Decoder {
     #[inline(always)]
@@ -102,11 +104,22 @@ impl BlockRgbaDecoder for BC5Decoder {
     }
 }
 
+impl BlockRgbaDecoder for BC7Decoder {
+    #[inline(always)]
+    fn decode_block(compressed: &[u8], decompressed: &mut [u8], pitch: usize) {
+        decode_block_bc7(compressed, decompressed, pitch)
+    }
+
+    fn block_byte_size() -> u32 {
+        CompressionVariant::BC7.block_byte_size()
+    }
+}
+
 fn decompress<D: BlockRgbaDecoder>(
     width: u32,
     height: u32,
-    input_bitstream: &[u8],
-    output_bitstream: &mut [u8],
+    blocks_data: &[u8],
+    rgba_data: &mut [u8],
 ) {
     let blocks_x = (width + 3) / 4;
     let blocks_y = (height + 3) / 4;
@@ -118,16 +131,16 @@ fn decompress<D: BlockRgbaDecoder>(
             let block_index = (by * blocks_x + bx) as usize;
             let block_offset = block_index * block_byte_size;
 
-            if block_offset + block_byte_size > input_bitstream.len() {
+            if block_offset + block_byte_size > blocks_data.len() {
                 break;
             }
 
             let output_offset = (by * 4 * output_row_pitch as u32 + bx * 16) as usize;
 
-            if output_offset < output_bitstream.len() {
+            if output_offset < rgba_data.len() {
                 D::decode_block(
-                    &input_bitstream[block_offset..block_offset + block_byte_size],
-                    &mut output_bitstream[output_offset..],
+                    &blocks_data[block_offset..block_offset + block_byte_size],
+                    &mut rgba_data[output_offset..],
                     output_row_pitch,
                 );
             }
@@ -135,39 +148,31 @@ fn decompress<D: BlockRgbaDecoder>(
     }
 }
 
+/// Helper function to easily decompress block data into RGBA8 data.
 pub fn decompress_blocks_as_rgba(
     variant: CompressionVariant,
     width: u32,
     height: u32,
-    input_bitstream: &[u8],
-    output_bitstream: &mut [u8],
+    blocks_data: &[u8],
+    rgba_data: &mut [u8],
 ) {
     let expected_input_size = variant.blocks_byte_size(width, height);
-    if input_bitstream.len() != expected_input_size {
+    if blocks_data.len() != expected_input_size {
         panic!("the input bitstream slice has not the expected size");
     }
 
     let expected_output_size = width as usize * height as usize * 4;
-    if output_bitstream.len() != expected_output_size {
+    if rgba_data.len() != expected_output_size {
         panic!("the output slice has not the expected size");
     }
 
     match variant {
-        CompressionVariant::BC1 => {
-            decompress::<BC1Decoder>(width, height, input_bitstream, output_bitstream)
-        }
-        CompressionVariant::BC2 => {
-            decompress::<BC2Decoder>(width, height, input_bitstream, output_bitstream)
-        }
-        CompressionVariant::BC3 => {
-            decompress::<BC3Decoder>(width, height, input_bitstream, output_bitstream)
-        }
-        CompressionVariant::BC4 => {
-            decompress::<BC4Decoder>(width, height, input_bitstream, output_bitstream)
-        }
-        CompressionVariant::BC5 => {
-            decompress::<BC5Decoder>(width, height, input_bitstream, output_bitstream)
-        }
-        _ => panic!("Unsupported compression variant"),
+        CompressionVariant::BC1 => decompress::<BC1Decoder>(width, height, blocks_data, rgba_data),
+        CompressionVariant::BC2 => decompress::<BC2Decoder>(width, height, blocks_data, rgba_data),
+        CompressionVariant::BC3 => decompress::<BC3Decoder>(width, height, blocks_data, rgba_data),
+        CompressionVariant::BC4 => decompress::<BC4Decoder>(width, height, blocks_data, rgba_data),
+        CompressionVariant::BC5 => decompress::<BC5Decoder>(width, height, blocks_data, rgba_data),
+        CompressionVariant::BC6H => panic!("Unsupported compression variant"),
+        CompressionVariant::BC7 => decompress::<BC7Decoder>(width, height, blocks_data, rgba_data),
     }
 }

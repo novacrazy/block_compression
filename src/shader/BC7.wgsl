@@ -558,7 +558,7 @@ fn block_quant(qblock: ptr<function, vec2<u32>>, block: ptr<function, array<f32,
     return total_err;
 }
 
-fn block_segment_core(ep: ptr<function, array<f32, 24>>, block: ptr<function, array<f32, 64>>, mask: u32, channels: u32) {
+fn block_segment_core(ep: ptr<function, array<f32, 24>>, offset: u32, block: ptr<function, array<f32, 64>>, mask: u32, channels: u32) {
     var axis: vec4<f32>;
     var dc: vec4<f32>;
     block_pca_axis(&axis, &dc, block, mask, channels);
@@ -590,17 +590,17 @@ fn block_segment_core(ep: ptr<function, array<f32, 24>>, block: ptr<function, ar
 
     for (var i = 0u; i < 2u; i++) {
         for (var p = 0u; p < channels; p++) {
-            (*ep)[4u * i + p] = ext[i] * axis[p] + dc[p];
+            (*ep)[offset + 4u * i + p] = ext[i] * axis[p] + dc[p];
         }
     }
 }
 
-fn block_segment(ep: ptr<function, array<f32, 24>>, block: ptr<function, array<f32, 64>>, mask: u32, channels: u32) {
-    block_segment_core(ep, block, mask, channels);
+fn block_segment(ep: ptr<function, array<f32, 24>>, offset: u32, block: ptr<function, array<f32, 64>>, mask: u32, channels: u32) {
+    block_segment_core(ep, offset, block, mask, channels);
 
     for (var i = 0u; i < 2u; i++) {
         for (var p = 0u; p < channels; p++) {
-            (*ep)[4u * i + p] = clamp((*ep)[4u * i + p], 0.0, 255.0);
+            (*ep)[offset + 4u * i + p] = clamp((*ep)[offset + 4u * i + p], 0.0, 255.0);
         }
     }
 }
@@ -1060,7 +1060,7 @@ fn bc7_enc_mode01237_part_fast(qep: ptr<function, array<i32, 24>>, qblock: ptr<f
     var ep: array<f32, 24>;
     for (var j = 0u; j < pairs; j++) {
         let mask = get_pattern_mask(part_id, j);
-        block_segment(&ep, block, mask, channels);
+        block_segment(&ep, j * 8, block, mask, channels);
     }
 
     ep_quant_dequant(qep, &ep, mode, channels);
@@ -1211,7 +1211,7 @@ fn bc7_enc_mode45_candidate(best_candidate: ptr<function, Mode45Parameters>, bes
     }
 
     var ep: array<f32, 24>;
-    block_segment(&ep, &candidate_block, 0xFFFFFFFFu, 3u);
+    block_segment(&ep, 0u, &candidate_block, 0xFFFFFFFFu, 3u);
 
     var qep: array<i32, 24>;
     ep_quant_dequant(&qep, &ep, mode, 3u);
@@ -1285,7 +1285,7 @@ fn bc7_enc_mode6(state: ptr<function, State>, block: ptr<function, array<f32, 64
     const bits = 4u;
 
     var ep: array<f32, 24>;
-    block_segment(&ep, block, 0xFFFFFFFFu, settings.channels);
+    block_segment(&ep, 0u, block, 0xFFFFFFFFu, settings.channels);
 
     if (settings.channels == 3u) {
         ep[3] = 255.0;

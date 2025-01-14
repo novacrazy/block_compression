@@ -231,13 +231,13 @@ fn pick_endpoints(
 }
 
 fn dec_rgb565(c: ptr<function, vec3<f32>>, p: i32) {
-    let c2 = (p >> 0) & 31;
-    let c1 = (p >> 5) & 63;
-    let c0 = (p >> 11) & 31;
+    let b5 = (p >> 0) & 31;
+    let g6 = (p >> 5) & 63;
+    let r5 = (p >> 11) & 31;
 
-    (*c)[0] = f32((c0 << 3) + (c0 >> 2));
-    (*c)[1] = f32((c1 << 2) + (c1 >> 4));
-    (*c)[2] = f32((c2 << 3) + (c2 >> 2));
+    (*c)[0] = f32((r5 << 3) + (r5 >> 2));
+    (*c)[1] = f32((g6 << 2) + (g6 >> 4));
+    (*c)[2] = f32((b5 << 3) + (b5 >> 2));
 }
 
 fn enc_rgb565(c: ptr<function, vec3<f32>>) -> i32 {
@@ -245,7 +245,11 @@ fn enc_rgb565(c: ptr<function, vec3<f32>>) -> i32 {
     let g = i32((*c)[1]);
     let b = i32((*c)[2]);
 
-    return ((r >> 3) << 11) + ((g >> 2) << 5) + (b >> 3);
+    let r5 = (r * 31 + 128 + ((r * 31) >> 8)) >> 8;
+    let g6 = (g * 63 + 128 + ((g * 63) >> 8)) >> 8;
+    let b5 = (b * 31 + 128 + ((b * 31) >> 8)) >> 8;
+
+    return (r5 << 11) + (g6 << 5) + b5;
 }
 
 fn fast_quant(block: ptr<function, array<f32, 64>>, p0: i32, p1: i32) -> u32 {
