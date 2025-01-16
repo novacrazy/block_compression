@@ -9,10 +9,7 @@ use wgpu::{
     ShaderModule, ShaderStages, TextureSampleType, TextureView, TextureViewDimension,
 };
 
-use crate::{
-    settings::{BC6HSettings, Settings},
-    BC7Settings, CompressionVariant,
-};
+use crate::{settings::BC6HSettings, BC7Settings, CompressionVariant};
 
 #[derive(Copy, Clone, Zeroable, Pod)]
 #[repr(C)]
@@ -33,7 +30,6 @@ struct Task {
     setting_offset: u32,
     buffer_offset: u32,
     bind_group: BindGroup,
-    settings: Option<Settings>,
 }
 
 /// Compresses texture data with a block compression algorithm using WGPU compute shader.
@@ -138,14 +134,14 @@ impl BlockCompressor {
             &shader_module_bc6h,
             &mut bind_group_layouts,
             &mut pipelines,
-            CompressionVariant::BC6H,
+            CompressionVariant::BC6H(BC6HSettings::basic()),
         );
         Self::create_pipeline(
             &device,
             &shader_module_bc7,
             &mut bind_group_layouts,
             &mut pipelines,
-            CompressionVariant::BC7,
+            CompressionVariant::BC7(BC7Settings::alpha_basic()),
         );
 
         Self {
@@ -171,41 +167,76 @@ impl BlockCompressor {
         pipelines: &mut HashMap<CompressionVariant, ComputePipeline>,
         variant: CompressionVariant,
     ) {
-        let mut layout_entries = vec![
-            BindGroupLayoutEntry {
-                binding: 0,
-                visibility: ShaderStages::COMPUTE,
-                ty: BindingType::Texture {
-                    sample_type: TextureSampleType::Float { filterable: true },
-                    view_dimension: TextureViewDimension::D2,
-                    multisampled: false,
+        let mut layout_entries = if matches!(variant, CompressionVariant::BC6H(..)) {
+            vec![
+                BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: ShaderStages::COMPUTE,
+                    ty: BindingType::Texture {
+                        sample_type: TextureSampleType::Uint,
+                        view_dimension: TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
                 },
-                count: None,
-            },
-            BindGroupLayoutEntry {
-                binding: 1,
-                visibility: ShaderStages::COMPUTE,
-                ty: BindingType::Buffer {
-                    ty: BufferBindingType::Storage { read_only: false },
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
+                BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: ShaderStages::COMPUTE,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Storage { read_only: false },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
                 },
-                count: None,
-            },
-            BindGroupLayoutEntry {
-                binding: 2,
-                visibility: ShaderStages::COMPUTE,
-                ty: BindingType::Buffer {
-                    ty: BufferBindingType::Uniform,
-                    has_dynamic_offset: true,
-                    min_binding_size: None,
+                BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: ShaderStages::COMPUTE,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Uniform,
+                        has_dynamic_offset: true,
+                        min_binding_size: None,
+                    },
+                    count: None,
                 },
-                count: None,
-            },
-        ];
+            ]
+        } else {
+            vec![
+                BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: ShaderStages::COMPUTE,
+                    ty: BindingType::Texture {
+                        sample_type: TextureSampleType::Float { filterable: true },
+                        view_dimension: TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: ShaderStages::COMPUTE,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Storage { read_only: false },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: ShaderStages::COMPUTE,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Uniform,
+                        has_dynamic_offset: true,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+            ]
+        };
 
         match variant {
-            CompressionVariant::BC6H => {
+            CompressionVariant::BC6H(..) => {
                 layout_entries.push(BindGroupLayoutEntry {
                     binding: 3,
                     visibility: ShaderStages::COMPUTE,
@@ -217,7 +248,7 @@ impl BlockCompressor {
                     count: None,
                 });
             }
-            CompressionVariant::BC7 => {
+            CompressionVariant::BC7(..) => {
                 layout_entries.push(BindGroupLayoutEntry {
                     binding: 3,
                     visibility: ShaderStages::COMPUTE,
@@ -258,7 +289,7 @@ impl BlockCompressor {
         pipelines.insert(variant, pipeline);
     }
 
-    /// Adds a texture compression task to the queue.
+    /// Adds an 8-bit LDR texture compression task to the queue.
     ///
     /// This API is designed to be very flexible. For example, it is possible to fill the mip map
     /// levels of a texture with multiple calls to this function.
@@ -270,6 +301,14 @@ impl BlockCompressor {
     /// use a sRGB texture format, but it needs to provide a view with a non-sRGB texture format.
     /// For example for a texture with a `Rgba8UnormSrgb` texture format, you will need to provide
     /// a texture view with the `Rgba8Unorm` format.
+    ///
+    /// BC1, 2, 3, 4, 5 and 7 expect to work on an `unorm` format. `Rgba8Unorm` should be correct
+    /// for 99.9% of cases.
+    ///
+    /// BC6H on the other hand currently needs the `Rgba16Uint` format. The uploaded data should be
+    /// the `f16` values saved as little endian bytes. The color is expected to be in linear space
+    /// and not sRGB. We try to fix the requirements for the `Rgba16Uint` format in the future
+    /// releases.
     ///
     /// # Buffer Requirements
     /// The destination buffer must have sufficient capacity to store the compressed blocks at the
@@ -291,14 +330,11 @@ impl BlockCompressor {
     /// * `height` - Height of the texture view in pixels
     /// * `buffer` - Destination storage buffer for the compressed data
     /// * `offset` - Optional offset in bytes into the destination buffer
-    /// * `settings` - Optional compression settings for BC6H/BC7.
-    ///                If none provided, defaults to the slowest preset.
     ///
     /// # Panics
-    /// - If width or height is not a multiple of 4
-    /// - If the destination buffer is not a storage buffer
-    /// - If the destination buffer is too small to hold the compressed blocks at the specified offset
-    /// - If the wrong settings where used for a variant with settings
+    /// - If `width` or `height` is not a multiple of 4
+    /// - If the destination `buffer` is not a storage buffer
+    /// - If the destination `buffer` is too small to hold the compressed blocks at the specified offset
     #[allow(clippy::too_many_arguments)]
     pub fn add_compression_task(
         &mut self,
@@ -308,51 +344,6 @@ impl BlockCompressor {
         height: u32,
         buffer: &Buffer,
         offset: Option<u32>,
-        settings: impl Into<Option<Settings>>,
-    ) {
-        let mut settings = settings.into();
-
-        if variant == CompressionVariant::BC6H {
-            match &settings {
-                None => settings = Some(Settings::BC6H(BC6HSettings::very_slow())),
-                Some(Settings::BC6H(..)) => { /* Nothing to do */ }
-                Some(Settings::BC7(..)) => {
-                    panic!("BC7 settings cannot be used with BC6H variant")
-                }
-            }
-        }
-
-        if variant == CompressionVariant::BC7 {
-            match &settings {
-                None => settings = Some(Settings::BC7(BC7Settings::alpha_slow())),
-                Some(Settings::BC6H(..)) => {
-                    panic!("BC6H settings cannot be used with BC7 variant")
-                }
-                Some(Settings::BC7(..)) => { /* Nothing to do */ }
-            }
-        }
-
-        self.add_task(
-            variant,
-            texture_view,
-            width,
-            height,
-            buffer,
-            offset,
-            settings,
-        );
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn add_task(
-        &mut self,
-        variant: CompressionVariant,
-        texture_view: &TextureView,
-        width: u32,
-        height: u32,
-        buffer: &Buffer,
-        offset: Option<u32>,
-        settings: Option<Settings>,
     ) {
         assert_eq!(height % 4, 0);
         assert_eq!(width % 4, 0);
@@ -404,7 +395,7 @@ impl BlockCompressor {
                     },
                 ],
             }),
-            CompressionVariant::BC6H => self.device.create_bind_group(&BindGroupDescriptor {
+            CompressionVariant::BC6H(..) => self.device.create_bind_group(&BindGroupDescriptor {
                 label: Some("bind group"),
                 layout: bind_group_layout,
                 entries: &[
@@ -434,7 +425,7 @@ impl BlockCompressor {
                     },
                 ],
             }),
-            CompressionVariant::BC7 => self.device.create_bind_group(&BindGroupDescriptor {
+            CompressionVariant::BC7(..) => self.device.create_bind_group(&BindGroupDescriptor {
                 label: Some("bind group"),
                 layout: bind_group_layout,
                 entries: &[
@@ -474,7 +465,6 @@ impl BlockCompressor {
             setting_offset: 0,
             buffer_offset: offset.unwrap_or(0),
             bind_group,
-            settings,
         });
     }
 
@@ -492,7 +482,7 @@ impl BlockCompressor {
         let bc6_setting_count = self
             .task
             .iter()
-            .filter(|task| task.variant == CompressionVariant::BC6H)
+            .filter(|task| matches!(task.variant, CompressionVariant::BC6H(..)))
             .count();
 
         let total_bc6h_size = self.bc6h_aligned_size * bc6_setting_count;
@@ -508,7 +498,7 @@ impl BlockCompressor {
         let bc7_setting_count = self
             .task
             .iter()
-            .filter(|task| task.variant == CompressionVariant::BC7)
+            .filter(|task| matches!(task.variant, CompressionVariant::BC7(..)))
             .count();
 
         let total_bc7_size = self.bc7_aligned_size * bc7_setting_count;
@@ -550,24 +540,24 @@ impl BlockCompressor {
         }
 
         self.scratch_buffer.clear();
-        for (index, task) in self
+        for (index, (settings, task)) in self
             .task
             .iter_mut()
-            .filter(|task| task.variant == CompressionVariant::BC6H)
+            .filter_map(|task| {
+                if let CompressionVariant::BC6H(settings) = task.variant {
+                    Some((settings, task))
+                } else {
+                    None
+                }
+            })
             .enumerate()
         {
             let offset = index * self.bc6h_aligned_size;
             task.setting_offset = offset as u32;
-
-            match &task.settings {
-                Some(Settings::BC6H(settings)) => {
-                    self.scratch_buffer
-                        .resize(offset + self.bc6h_aligned_size, 0);
-                    self.scratch_buffer[offset..offset + size_of::<BC6HSettings>()]
-                        .copy_from_slice(cast_slice(&[*settings]));
-                }
-                _ => panic!("internal error: No BC6H setting found"),
-            }
+            self.scratch_buffer
+                .resize(offset + self.bc6h_aligned_size, 0);
+            self.scratch_buffer[offset..offset + size_of::<BC6HSettings>()]
+                .copy_from_slice(cast_slice(&[settings]));
         }
         if !self.scratch_buffer.is_empty() {
             if let Some(mut data) = self.queue.write_buffer_with(
@@ -580,24 +570,24 @@ impl BlockCompressor {
         }
 
         self.scratch_buffer.clear();
-        for (index, task) in self
+        for (index, (settings, task)) in self
             .task
             .iter_mut()
-            .filter(|task| task.variant == CompressionVariant::BC7)
+            .filter_map(|task| {
+                if let CompressionVariant::BC7(settings) = task.variant {
+                    Some((settings, task))
+                } else {
+                    None
+                }
+            })
             .enumerate()
         {
             let offset = index * self.bc7_aligned_size;
             task.setting_offset = offset as u32;
-
-            match &task.settings {
-                Some(Settings::BC7(settings)) => {
-                    self.scratch_buffer
-                        .resize(offset + self.bc7_aligned_size, 0);
-                    self.scratch_buffer[offset..offset + size_of::<BC7Settings>()]
-                        .copy_from_slice(cast_slice(&[*settings]));
-                }
-                _ => panic!("internal error: No BC7 setting found"),
-            }
+            self.scratch_buffer
+                .resize(offset + self.bc7_aligned_size, 0);
+            self.scratch_buffer[offset..offset + size_of::<BC7Settings>()]
+                .copy_from_slice(cast_slice(&[settings]));
         }
         if !self.scratch_buffer.is_empty() {
             if let Some(mut data) = self.queue.write_buffer_with(
@@ -627,7 +617,7 @@ impl BlockCompressor {
             pass.set_pipeline(pipeline);
 
             match task.variant {
-                CompressionVariant::BC6H | CompressionVariant::BC7 => {
+                CompressionVariant::BC6H(..) | CompressionVariant::BC7(..) => {
                     pass.set_bind_group(
                         0,
                         &task.bind_group,

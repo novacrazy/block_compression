@@ -1,26 +1,7 @@
 use bytemuck::{Pod, Zeroable};
 
-/// Wrapper for all settings.
-#[derive(Copy, Clone)]
-pub enum Settings {
-    BC6H(BC6HSettings),
-    BC7(BC7Settings),
-}
-
-impl From<BC6HSettings> for Option<Settings> {
-    fn from(settings: BC6HSettings) -> Self {
-        Some(Settings::BC6H(settings))
-    }
-}
-
-impl From<BC7Settings> for Option<Settings> {
-    fn from(settings: BC7Settings) -> Self {
-        Some(Settings::BC7(settings))
-    }
-}
-
 /// Encoding settings for BC6H.
-#[derive(Copy, Clone, Debug, Default, Pod, Zeroable)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Pod, Zeroable)]
 #[repr(C)]
 pub struct BC6HSettings {
     slow_mode: u32,

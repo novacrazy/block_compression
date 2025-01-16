@@ -1,36 +1,49 @@
 use std::sync::{Arc, LazyLock};
 
-use image::{EncodableLayout, ImageReader};
+use block_compression::CompressionVariant;
+use half::f16;
+use image::ImageReader;
 use pollster::block_on;
 use wgpu::{
-    util::{backend_bits_from_env, dx12_shader_compiler_from_env, DeviceExt, TextureDataOrder},
-    Buffer, BufferDescriptor, BufferUsages, CommandEncoderDescriptor, Device, DeviceDescriptor,
-    Dx12Compiler, Error, Extent3d, Features, Gles3MinorVersion, Instance, InstanceDescriptor,
-    InstanceFlags, Limits, Maintain, MapMode, MemoryHints, Queue, Texture, TextureDescriptor,
+    util::{DeviceExt, TextureDataOrder},
+    BackendOptions, Backends, Buffer, BufferDescriptor, BufferUsages, CommandEncoderDescriptor,
+    Device, DeviceDescriptor, Dx12BackendOptions, Dx12Compiler, Error, Extent3d, Features,
+    GlBackendOptions, Gles3MinorVersion, Instance, InstanceDescriptor, InstanceFlags, Limits,
+    Maintain, MapMode, MemoryHints, PowerPreference, Queue, Texture, TextureDescriptor,
     TextureDimension, TextureFormat, TextureUsages,
 };
+
+#[inline]
+pub fn srgb_to_linear(srgb: u8) -> f64 {
+    let v = (srgb as f64) / 255.0;
+    if v <= 0.04045 {
+        v / 12.92
+    } else {
+        ((v + 0.055) / 1.055).powf(2.4)
+    }
+}
 
 pub const BRICK_FILE_PATH: &str = "tests/images/brick.png";
 pub const MARBLE_FILE_PATH: &str = "tests/images/marble.png";
 
 pub fn create_wgpu_resources() -> (Arc<Device>, Arc<Queue>) {
     static CACHE: LazyLock<(Arc<Device>, Arc<Queue>)> = LazyLock::new(|| {
-        let backends = backend_bits_from_env().unwrap_or_default();
-        let dx12_shader_compiler = dx12_shader_compiler_from_env().unwrap_or(Dx12Compiler::Dxc {
-            dxil_path: None,
-            dxc_path: None,
-        });
-        let flags = InstanceFlags::from_build_config().with_env();
-
-        let instance = Instance::new(InstanceDescriptor {
-            backends,
-            flags,
-            dx12_shader_compiler,
-            gles_minor_version: Gles3MinorVersion::default(),
+        let instance = Instance::new(&InstanceDescriptor {
+            backends: Backends::from_env().unwrap_or_default(),
+            flags: InstanceFlags::from_build_config().with_env(),
+            backend_options: BackendOptions {
+                gl: GlBackendOptions {
+                    gles_minor_version: Gles3MinorVersion::Version1,
+                },
+                dx12: Dx12BackendOptions {
+                    shader_compiler: Dx12Compiler::StaticDxc,
+                }
+                .with_env(),
+            },
         });
 
         let adapter = block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-            power_preference: wgpu::PowerPreference::HighPerformance,
+            power_preference: PowerPreference::HighPerformance,
             compatible_surface: None,
             force_fallback_adapter: false,
         }))
@@ -39,9 +52,9 @@ pub fn create_wgpu_resources() -> (Arc<Device>, Arc<Queue>) {
         let (device, queue) = block_on(adapter.request_device(
             &DeviceDescriptor {
                 label: Some("main device"),
-                required_features: Features::TIMESTAMP_QUERY | Features::TEXTURE_COMPRESSION_BC,
+                required_features: Features::default(),
                 required_limits: Limits::default(),
-                memory_hints: MemoryHints::default(),
+                memory_hints: MemoryHints::Performance,
             },
             None,
         ))
@@ -74,6 +87,7 @@ pub fn read_image_and_create_texture(
     device: &Device,
     queue: &Queue,
     file_path: &str,
+    variant: CompressionVariant,
 ) -> (Texture, Vec<u8>) {
     let image = ImageReader::open(file_path)
         .expect("can't open input image")
@@ -84,25 +98,52 @@ pub fn read_image_and_create_texture(
     let width = rgba_image.width();
     let height = rgba_image.height();
 
-    let texture = device.create_texture_with_data(
-        queue,
-        &TextureDescriptor {
-            label: Some(file_path),
-            size: Extent3d {
-                width,
-                height,
-                depth_or_array_layers: 1,
+    let texture = if matches!(variant, CompressionVariant::BC6H(..)) {
+        let rgba_f16_data: Vec<u8> = rgba_image
+            .iter()
+            .flat_map(|color| f16::from_f64(srgb_to_linear(*color)).to_le_bytes())
+            .collect();
+
+        device.create_texture_with_data(
+            queue,
+            &TextureDescriptor {
+                label: Some(file_path),
+                size: Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: TextureDimension::D2,
+                format: TextureFormat::Rgba16Uint,
+                usage: TextureUsages::COPY_DST | TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
             },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: TextureDimension::D2,
-            format: TextureFormat::Rgba8UnormSrgb,
-            usage: TextureUsages::COPY_DST | TextureUsages::TEXTURE_BINDING,
-            view_formats: &[TextureFormat::Rgba8Unorm],
-        },
-        TextureDataOrder::LayerMajor,
-        rgba_image.as_bytes(),
-    );
+            TextureDataOrder::LayerMajor,
+            &rgba_f16_data,
+        )
+    } else {
+        device.create_texture_with_data(
+            queue,
+            &TextureDescriptor {
+                label: Some(file_path),
+                size: Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: TextureDimension::D2,
+                format: TextureFormat::Rgba8Unorm,
+                usage: TextureUsages::COPY_DST | TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            },
+            TextureDataOrder::LayerMajor,
+            &rgba_image,
+        )
+    };
 
     (texture, rgba_image.to_vec())
 }

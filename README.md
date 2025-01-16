@@ -3,6 +3,13 @@
 Texture block compression using WGPU compute shader.
 The shaders are a port of Intel's ISPC Texture Compressor's kernel to WGSL compute shader.
 
+Tested with the following backends:
+
+* DX12
+* GL
+* Metal
+* Vulkan
+
 ## Supported block compressions
 
 Currently supported block compressions are:
@@ -13,9 +20,6 @@ Currently supported block compressions are:
 * BC4
 * BC5
 * BC7
-
-Soon:
-
 * BC6H
 
 ## License

@@ -17,21 +17,29 @@ categories = ["rendering", "rendering::engine", ]
 [badges]
 maintenance = { status = "actively-developed" }
 
+[features]
+default = ["half"]
+
 [dependencies]
 bytemuck = { workspace = true, features = ["derive"] }
+half = { workspace = true, optional = true }
 wgpu = { workspace = true }
 
 [dev-dependencies]
-intel_tex_2 = "0.4"
+ddsfile = "0.5.2"
 image = { workspace = true, features = ["png"] }
+intel_tex_2 = { workspace = true }
 pollster = { workspace = true }
+wgpu = { workspace = true, features = ["static-dxc"] }
 
 [workspace.dependencies]
-bytemuck = "1.21"
+bytemuck = "1"
 ddsfile = "0.5"
+half = "2"
 image = { version = "0.25", default-features = false }
+intel_tex_2 = "0.4"
 pollster = "0.4"
-wgpu = "23"
+wgpu = "24"
 
 [workspace]
 members = [

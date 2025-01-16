@@ -1,17 +1,20 @@
 use std::{fs::File, path::PathBuf, sync::Arc, time::Instant};
 
-use block_compression::{BC6HSettings, BC7Settings, BlockCompressor, CompressionVariant};
+use block_compression::{
+    half::f16, BC6HSettings, BC7Settings, BlockCompressor, CompressionVariant,
+};
 use bytemuck::cast_slice;
 use ddsfile::{AlphaMode, D3D10ResourceDimension, Dds, DxgiFormat, NewDxgiParams};
-use image::{EncodableLayout, ImageReader};
+use image::ImageReader;
 use pollster::block_on;
 use wgpu::{
-    util::{backend_bits_from_env, dx12_shader_compiler_from_env, DeviceExt, TextureDataOrder},
-    Buffer, BufferDescriptor, BufferUsages, CommandEncoderDescriptor, ComputePassDescriptor,
-    ComputePassTimestampWrites, Device, DeviceDescriptor, Dx12Compiler, Error, Extent3d, Features,
+    util::{DeviceExt, TextureDataOrder},
+    BackendOptions, Backends, Buffer, BufferDescriptor, BufferUsages, CommandEncoderDescriptor,
+    ComputePassDescriptor, ComputePassTimestampWrites, Device, DeviceDescriptor,
+    Dx12BackendOptions, Dx12Compiler, Error, Extent3d, Features, GlBackendOptions,
     Gles3MinorVersion, Instance, InstanceDescriptor, InstanceFlags, Limits, Maintain, MapMode,
-    MemoryHints, QueryType, Queue, Texture, TextureDescriptor, TextureDimension, TextureFormat,
-    TextureUsages, TextureViewDescriptor,
+    MemoryHints, PowerPreference, QueryType, Queue, Texture, TextureDescriptor, TextureDimension,
+    TextureFormat, TextureUsages, TextureViewDescriptor,
 };
 
 fn main() {
@@ -25,11 +28,8 @@ fn main() {
 
     let start = Instant::now();
 
-    let texture = read_image_and_create_texture(&device, &queue, &file_name);
-    let texture_view = texture.create_view(&TextureViewDescriptor {
-        format: Some(TextureFormat::Rgba8Unorm),
-        ..Default::default()
-    });
+    let texture = read_image_and_create_texture(&device, &queue, &file_name, variant);
+    let texture_view = texture.create_view(&TextureViewDescriptor::default());
     let width = texture.width();
     let height = texture.height();
 
@@ -46,41 +46,7 @@ fn main() {
         mapped_at_creation: false,
     });
 
-    match variant {
-        CompressionVariant::BC6H => {
-            compressor.add_compression_task(
-                variant,
-                &texture_view,
-                width,
-                height,
-                &blocks_buffer,
-                None,
-                BC6HSettings::slow(),
-            );
-        }
-        CompressionVariant::BC7 => {
-            compressor.add_compression_task(
-                variant,
-                &texture_view,
-                width,
-                height,
-                &blocks_buffer,
-                None,
-                BC7Settings::alpha_slow(),
-            );
-        }
-        _ => {
-            compressor.add_compression_task(
-                variant,
-                &texture_view,
-                width,
-                height,
-                &blocks_buffer,
-                None,
-                None,
-            );
-        }
-    }
+    compressor.add_compression_task(variant, &texture_view, width, height, &blocks_buffer, None);
 
     compress(&mut compressor, &device, &queue);
 
@@ -106,22 +72,22 @@ fn main() {
 }
 
 fn create_resources() -> (Arc<Device>, Arc<Queue>) {
-    let backends = backend_bits_from_env().unwrap_or_default();
-    let dx12_shader_compiler = dx12_shader_compiler_from_env().unwrap_or(Dx12Compiler::Dxc {
-        dxil_path: None,
-        dxc_path: None,
-    });
-    let flags = InstanceFlags::from_build_config().with_env();
-
-    let instance = Instance::new(InstanceDescriptor {
-        backends,
-        flags,
-        dx12_shader_compiler,
-        gles_minor_version: Gles3MinorVersion::default(),
+    let instance = Instance::new(&InstanceDescriptor {
+        backends: Backends::from_env().unwrap_or_default(),
+        flags: InstanceFlags::from_build_config().with_env(),
+        backend_options: BackendOptions {
+            gl: GlBackendOptions {
+                gles_minor_version: Gles3MinorVersion::Version1,
+            },
+            dx12: Dx12BackendOptions {
+                shader_compiler: Dx12Compiler::StaticDxc,
+            }
+            .with_env(),
+        },
     });
 
     let adapter = block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-        power_preference: wgpu::PowerPreference::HighPerformance,
+        power_preference: PowerPreference::HighPerformance,
         compatible_surface: None,
         force_fallback_adapter: false,
     }))
@@ -130,19 +96,27 @@ fn create_resources() -> (Arc<Device>, Arc<Queue>) {
     let (device, queue) = block_on(adapter.request_device(
         &DeviceDescriptor {
             label: Some("main device"),
-            required_features: Features::TIMESTAMP_QUERY | Features::TEXTURE_COMPRESSION_BC,
-            required_limits: Limits::default(),
-            memory_hints: MemoryHints::default(),
+            required_features: Features::TIMESTAMP_QUERY,
+            required_limits: Limits::downlevel_defaults(),
+            memory_hints: MemoryHints::Performance,
         },
         None,
     ))
     .expect("Failed to create device");
     device.on_uncaptured_error(Box::new(error_handler));
 
+    let info = adapter.get_info();
+    println!("Using backend: {:?}", info.backend);
+
     (Arc::new(device), Arc::new(queue))
 }
 
-fn read_image_and_create_texture(device: &Device, queue: &Queue, file_name: &str) -> Texture {
+fn read_image_and_create_texture(
+    device: &Device,
+    queue: &Queue,
+    file_name: &str,
+    variant: CompressionVariant,
+) -> Texture {
     let image = ImageReader::open(file_name)
         .expect("can't open input image")
         .decode()
@@ -152,25 +126,62 @@ fn read_image_and_create_texture(device: &Device, queue: &Queue, file_name: &str
     let width = rgba_image.width();
     let height = rgba_image.height();
 
-    device.create_texture_with_data(
-        queue,
-        &TextureDescriptor {
-            label: Some(file_name),
-            size: Extent3d {
-                width,
-                height,
-                depth_or_array_layers: 1,
+    if matches!(variant, CompressionVariant::BC6H(..)) {
+        let rgba_f16_data: Vec<u8> = rgba_image
+            .iter()
+            .flat_map(|color| f16::from_f64(srgb_to_linear(*color)).to_le_bytes())
+            .collect();
+
+        device.create_texture_with_data(
+            queue,
+            &TextureDescriptor {
+                label: Some(file_name),
+                size: Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: TextureDimension::D2,
+                format: TextureFormat::Rgba16Uint,
+                usage: TextureUsages::COPY_DST | TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
             },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: TextureDimension::D2,
-            format: TextureFormat::Rgba8UnormSrgb,
-            usage: TextureUsages::COPY_DST | TextureUsages::TEXTURE_BINDING,
-            view_formats: &[TextureFormat::Rgba8Unorm],
-        },
-        TextureDataOrder::LayerMajor,
-        rgba_image.as_bytes(),
-    )
+            TextureDataOrder::LayerMajor,
+            &rgba_f16_data,
+        )
+    } else {
+        device.create_texture_with_data(
+            queue,
+            &TextureDescriptor {
+                label: Some(file_name),
+                size: Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: TextureDimension::D2,
+                format: TextureFormat::Rgba8Unorm,
+                usage: TextureUsages::COPY_DST | TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            },
+            TextureDataOrder::LayerMajor,
+            &rgba_image,
+        )
+    }
+}
+
+#[inline]
+pub fn srgb_to_linear(srgb: u8) -> f64 {
+    let v = (srgb as f64) / 255.0;
+    if v <= 0.04045 {
+        v / 12.92
+    } else {
+        ((v + 0.055) / 1.055).powf(2.4)
+    }
 }
 
 fn compress(compressor: &mut BlockCompressor, device: &Device, queue: &Queue) {
@@ -328,8 +339,8 @@ fn dxgi_format(variant: CompressionVariant) -> DxgiFormat {
         CompressionVariant::BC3 => DxgiFormat::BC3_UNorm_sRGB,
         CompressionVariant::BC4 => DxgiFormat::BC4_UNorm,
         CompressionVariant::BC5 => DxgiFormat::BC5_UNorm,
-        CompressionVariant::BC6H => DxgiFormat::BC6H_UF16,
-        CompressionVariant::BC7 => DxgiFormat::BC7_UNorm_sRGB,
+        CompressionVariant::BC6H(..) => DxgiFormat::BC6H_UF16,
+        CompressionVariant::BC7(..) => DxgiFormat::BC7_UNorm_sRGB,
     }
 }
 
@@ -359,8 +370,8 @@ fn parse_args() -> Option<(CompressionVariant, String)> {
         "bc3" => CompressionVariant::BC3,
         "bc4" => CompressionVariant::BC4,
         "bc5" => CompressionVariant::BC5,
-        "bc6h" => CompressionVariant::BC6H,
-        "bc7" => CompressionVariant::BC7,
+        "bc6h" => CompressionVariant::BC6H(BC6HSettings::very_slow()),
+        "bc7" => CompressionVariant::BC7(BC7Settings::alpha_slow()),
         _ => {
             println!("Error: Invalid compression variant");
             print_help();

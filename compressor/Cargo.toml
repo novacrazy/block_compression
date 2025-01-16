@@ -12,4 +12,4 @@ bytemuck = { workspace = true }
 ddsfile = { workspace = true }
 image = { workspace = true, features = ["bmp", "png", "tga"] }
 pollster = { workspace = true }
-wgpu = { workspace = true }
+wgpu = { workspace = true, features = ["static-dxc"] }

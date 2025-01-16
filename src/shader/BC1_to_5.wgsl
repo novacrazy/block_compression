@@ -71,7 +71,7 @@ fn load_block_g_8bit(block: ptr<function, array<f32, 64>>, xx: u32, yy: u32) {
             let pixel_y = yy * 4u + y;
             let green = textureLoad(source_texture, vec2<u32>(pixel_x, pixel_y), 0).g;
 
-            (*block)[48u + y * 4u + x] = green * 255.0;
+            (*block)[48u + y * 4u + x] = green  * 255.0;
         }
     }
 }
@@ -584,8 +584,8 @@ fn compress_bc5(@builtin(global_invocation_id) global_id: vec3<u32>) {
     load_block_g_8bit(&block, xx, yy);
 
     let green_result = compress_block_bc3_alpha(&block);
-    compressed_data[2] = green_result.x;
-    compressed_data[3] = green_result.y;
+    compressed_data[2] = green_result[0];
+    compressed_data[3] = green_result[1];
 
     store_data_4(block_width, xx, yy, compressed_data);
 }

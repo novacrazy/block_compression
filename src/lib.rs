@@ -3,6 +3,13 @@
 //! Texture block compression using WGPU compute shader.
 //! The shaders are a port of Intel's ISPC Texture Compressor's kernel to WGSL compute shader.
 //!
+//! Tested with the following backends:
+//!
+//! * DX12
+//! * GL
+//! * Metal
+//! * Vulkan
+//!
 //! ## Supported block compressions
 //!
 //! Currently supported block compressions are:
@@ -13,19 +20,19 @@
 //!  * BC4
 //!  * BC5
 //!  * BC7
-//!
-//! Soon:
-//!
 //!  * BC6H
 mod block_compressor;
 pub mod decode;
 mod settings;
 
-pub use block_compressor::BlockCompressor;
-pub use settings::{BC6HSettings, BC7Settings, Settings};
+use std::hash::{Hash, Hasher};
 
-/// Compression variants supported by this crate.
-#[derive(Copy, Clone, Hash, Eq, PartialEq, Ord, PartialOrd, Debug)]
+pub use block_compressor::BlockCompressor;
+pub use half;
+pub use settings::{BC6HSettings, BC7Settings};
+
+/// Compression variants supported by this crate for 8-bit LDR data.
+#[derive(Copy, Clone, Debug)]
 pub enum CompressionVariant {
     /// BC1 compression (RGB)
     BC1,
@@ -37,10 +44,24 @@ pub enum CompressionVariant {
     BC4,
     /// BC5 compression (RG)
     BC5,
-    /// BC6H compression (RGB HDR)
-    BC6H,
+    /// BC6H compression (RGB LDR)
+    BC6H(BC6HSettings),
     /// BC7 compression with smooth alpha (RGBA)
-    BC7,
+    BC7(BC7Settings),
+}
+
+impl PartialEq for CompressionVariant {
+    fn eq(&self, other: &Self) -> bool {
+        std::mem::discriminant(self) == std::mem::discriminant(other)
+    }
+}
+
+impl Eq for CompressionVariant {}
+
+impl Hash for CompressionVariant {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        std::mem::discriminant(self).hash(state);
+    }
 }
 
 impl CompressionVariant {
@@ -68,36 +89,32 @@ impl CompressionVariant {
 
     const fn block_byte_size(self) -> u32 {
         match self {
-            CompressionVariant::BC1 | CompressionVariant::BC4 => 8,
-            CompressionVariant::BC2
-            | CompressionVariant::BC3
-            | CompressionVariant::BC5
-            | CompressionVariant::BC6H
-            | CompressionVariant::BC7 => 16,
+            Self::BC1 | Self::BC4 => 8,
+            Self::BC2 | Self::BC3 | Self::BC5 | Self::BC6H(..) | Self::BC7(..) => 16,
         }
     }
 
     const fn name(self) -> &'static str {
         match self {
-            CompressionVariant::BC1 => "bc1",
-            CompressionVariant::BC2 => "bc2",
-            CompressionVariant::BC3 => "bc3",
-            CompressionVariant::BC4 => "bc4",
-            CompressionVariant::BC5 => "bc5",
-            CompressionVariant::BC6H => "bc6h",
-            CompressionVariant::BC7 => "bc7",
+            Self::BC1 => "bc1",
+            Self::BC2 => "bc2",
+            Self::BC3 => "bc3",
+            Self::BC4 => "bc4",
+            Self::BC5 => "bc5",
+            Self::BC6H(..) => "bc6h",
+            Self::BC7(..) => "bc7",
         }
     }
 
     const fn entry_point(self) -> &'static str {
         match self {
-            CompressionVariant::BC1 => "compress_bc1",
-            CompressionVariant::BC2 => "compress_bc2",
-            CompressionVariant::BC3 => "compress_bc3",
-            CompressionVariant::BC4 => "compress_bc4",
-            CompressionVariant::BC5 => "compress_bc5",
-            CompressionVariant::BC6H => "compress_bc6h",
-            CompressionVariant::BC7 => "compress_bc7",
+            Self::BC1 => "compress_bc1",
+            Self::BC2 => "compress_bc2",
+            Self::BC3 => "compress_bc3",
+            Self::BC4 => "compress_bc4",
+            Self::BC5 => "compress_bc5",
+            Self::BC6H(..) => "compress_bc6h",
+            Self::BC7(..) => "compress_bc7",
         }
     }
 }
