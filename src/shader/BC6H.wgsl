@@ -42,7 +42,7 @@ struct State {
     qbounds: array<i32, 8>,
 }
 
-@group(0) @binding(0) var source_texture: texture_2d<u32>;
+@group(0) @binding(0) var source_texture: texture_2d<f32>;
 @group(0) @binding(1) var<storage, read_write> block_buffer: array<u32>;
 @group(0) @binding(2) var<uniform> uniforms: Uniforms;
 @group(0) @binding(3) var<storage, read> settings: Settings;
@@ -55,9 +55,14 @@ fn rsqrt(x: f32) -> f32 {
     return 1.0 / sqrt(x);
 }
 
-// TODO: We currently load the data like the reference ISPC implementation did:
-//       We read the f16 value as an integer value and do some magic scaling on it.
-//       I would love to use a simpler approach by using a f32 texture instead.
+fn f32_to_f16_bits(f: f32) -> u32 {
+    let u = bitcast<u32>(f);
+    let sign = (u >> 31) & 0x1u;
+    let exp = ((u >> 23) & 0xFFu) - 127u + 15u;
+    let frac = (u >> 13) & 0x3FFu;
+    return (sign << 15) | (exp << 10) | frac;
+}
+
 fn load_block_interleaved_16bit(block: ptr<function, array<f32, 64>>, xx: u32, yy: u32) {
     for (var y = 0u; y < 4u; y++) {
         for (var x = 0u; x < 4u; x++) {
@@ -65,9 +70,9 @@ fn load_block_interleaved_16bit(block: ptr<function, array<f32, 64>>, xx: u32, y
             let pixel_y = yy * 4u + y;
             let rgba = textureLoad(source_texture, vec2<u32>(pixel_x, pixel_y), 0);
 
-            (*block)[16u * 0u + y * 4u + x] = f32(rgba.r & 0xFFFFu);
-            (*block)[16u * 1u + y * 4u + x] = f32(rgba.g & 0xFFFFu);
-            (*block)[16u * 2u + y * 4u + x] = f32(rgba.b & 0xFFFFu);
+            (*block)[16u * 0u + y * 4u + x] = f32(f32_to_f16_bits(rgba.r) & 0xFFFF);
+            (*block)[16u * 1u + y * 4u + x] = f32(f32_to_f16_bits(rgba.g) & 0xFFFF);
+            (*block)[16u * 2u + y * 4u + x] = f32(f32_to_f16_bits(rgba.b) & 0xFFFF);
             (*block)[16u * 3u + y * 4u + x] = 0.0;
         }
     }

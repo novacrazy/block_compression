@@ -144,12 +144,12 @@ fn read_image_and_create_texture(
                 mip_level_count: 1,
                 sample_count: 1,
                 dimension: TextureDimension::D2,
-                format: TextureFormat::Rgba16Uint,
+                format: TextureFormat::Rgba16Float,
                 usage: TextureUsages::COPY_DST | TextureUsages::TEXTURE_BINDING,
                 view_formats: &[],
             },
             TextureDataOrder::LayerMajor,
-            &rgba_f16_data,
+            rgba_f16_data.as_slice(),
         )
     } else {
         device.create_texture_with_data(

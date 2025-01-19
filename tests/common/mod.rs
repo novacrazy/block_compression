@@ -101,7 +101,7 @@ pub fn read_image_and_create_texture(
     let texture = if matches!(variant, CompressionVariant::BC6H(..)) {
         let rgba_f16_data: Vec<u8> = rgba_image
             .iter()
-            .flat_map(|color| f16::from_f64(srgb_to_linear(*color)).to_le_bytes())
+            .flat_map(|color| f16::from_f64(srgb_to_linear(*color)).to_ne_bytes())
             .collect();
 
         device.create_texture_with_data(
@@ -116,12 +116,12 @@ pub fn read_image_and_create_texture(
                 mip_level_count: 1,
                 sample_count: 1,
                 dimension: TextureDimension::D2,
-                format: TextureFormat::Rgba16Uint,
+                format: TextureFormat::Rgba16Float,
                 usage: TextureUsages::COPY_DST | TextureUsages::TEXTURE_BINDING,
                 view_formats: &[],
             },
             TextureDataOrder::LayerMajor,
-            &rgba_f16_data,
+            rgba_f16_data.as_slice(),
         )
     } else {
         device.create_texture_with_data(

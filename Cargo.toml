@@ -26,7 +26,6 @@ half = { workspace = true, optional = true }
 wgpu = { workspace = true }
 
 [dev-dependencies]
-ddsfile = "0.5.2"
 image = { workspace = true, features = ["png"] }
 intel_tex_2 = { workspace = true }
 pollster = { workspace = true }

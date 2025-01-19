@@ -167,73 +167,38 @@ impl BlockCompressor {
         pipelines: &mut HashMap<CompressionVariant, ComputePipeline>,
         variant: CompressionVariant,
     ) {
-        let mut layout_entries = if matches!(variant, CompressionVariant::BC6H(..)) {
-            vec![
-                BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: ShaderStages::COMPUTE,
-                    ty: BindingType::Texture {
-                        sample_type: TextureSampleType::Uint,
-                        view_dimension: TextureViewDimension::D2,
-                        multisampled: false,
-                    },
-                    count: None,
+        let mut layout_entries = vec![
+            BindGroupLayoutEntry {
+                binding: 0,
+                visibility: ShaderStages::COMPUTE,
+                ty: BindingType::Texture {
+                    sample_type: TextureSampleType::Float { filterable: true },
+                    view_dimension: TextureViewDimension::D2,
+                    multisampled: false,
                 },
-                BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: ShaderStages::COMPUTE,
-                    ty: BindingType::Buffer {
-                        ty: BufferBindingType::Storage { read_only: false },
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
+                count: None,
+            },
+            BindGroupLayoutEntry {
+                binding: 1,
+                visibility: ShaderStages::COMPUTE,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Storage { read_only: false },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
                 },
-                BindGroupLayoutEntry {
-                    binding: 2,
-                    visibility: ShaderStages::COMPUTE,
-                    ty: BindingType::Buffer {
-                        ty: BufferBindingType::Uniform,
-                        has_dynamic_offset: true,
-                        min_binding_size: None,
-                    },
-                    count: None,
+                count: None,
+            },
+            BindGroupLayoutEntry {
+                binding: 2,
+                visibility: ShaderStages::COMPUTE,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Uniform,
+                    has_dynamic_offset: true,
+                    min_binding_size: None,
                 },
-            ]
-        } else {
-            vec![
-                BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: ShaderStages::COMPUTE,
-                    ty: BindingType::Texture {
-                        sample_type: TextureSampleType::Float { filterable: true },
-                        view_dimension: TextureViewDimension::D2,
-                        multisampled: false,
-                    },
-                    count: None,
-                },
-                BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: ShaderStages::COMPUTE,
-                    ty: BindingType::Buffer {
-                        ty: BufferBindingType::Storage { read_only: false },
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
-                BindGroupLayoutEntry {
-                    binding: 2,
-                    visibility: ShaderStages::COMPUTE,
-                    ty: BindingType::Buffer {
-                        ty: BufferBindingType::Uniform,
-                        has_dynamic_offset: true,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
-            ]
-        };
+                count: None,
+            },
+        ];
 
         match variant {
             CompressionVariant::BC6H(..) => {
@@ -305,10 +270,8 @@ impl BlockCompressor {
     /// BC1, 2, 3, 4, 5 and 7 expect to work on an `unorm` format. `Rgba8Unorm` should be correct
     /// for 99.9% of cases.
     ///
-    /// BC6H on the other hand currently needs the `Rgba16Uint` format. The uploaded data should be
-    /// the `f16` values saved as little endian bytes. The color is expected to be in linear space
-    /// and not sRGB. We try to fix the requirements for the `Rgba16Uint` format in the future
-    /// releases.
+    /// BC6H on needs an `unorm` or `float` format. `Rgba16Float` is optimal for HDR textures.
+    /// Colors should be in linear space and not in sRGBA space.
     ///
     /// # Buffer Requirements
     /// The destination buffer must have sufficient capacity to store the compressed blocks at the
