@@ -18,8 +18,8 @@ Currently supported block compressions are:
 * BC3
 * BC4
 * BC5
-* BC7
 * BC6H
+* BC7
 
 ## License
 
