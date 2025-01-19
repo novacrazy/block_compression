@@ -56,7 +56,7 @@ fn rsqrt(x: f32) -> f32 {
 }
 
 fn f32_to_f16_bits(f: f32) -> u32 {
-    let u = bitcast<u32>(f);
+    let u = bitcast<u32>(quantizeToF16(f));
     let sign = (u >> 31) & 0x1u;
     let exp = ((u >> 23) & 0xFFu) - 127u + 15u;
     let frac = (u >> 13) & 0x3FFu;
