@@ -3,7 +3,6 @@ use block_compression::{
     CompressionVariant,
 };
 use half::f16;
-use image::{codecs::png::PngEncoder, ExtendedColorType, ImageEncoder};
 use intel_tex_2::{bc1, bc3, bc6h, bc7, RgbaSurface};
 use wgpu::{CommandEncoderDescriptor, ComputePassDescriptor, TextureViewDescriptor};
 
