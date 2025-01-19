@@ -6,7 +6,6 @@
 //! Tested with the following backends:
 //!
 //! * DX12
-//! * GL
 //! * Metal
 //! * Vulkan
 //!

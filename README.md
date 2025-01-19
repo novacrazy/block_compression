@@ -6,7 +6,6 @@ The shaders are a port of Intel's ISPC Texture Compressor's kernel to WGSL compu
 Tested with the following backends:
 
 * DX12
-* GL
 * Metal
 * Vulkan
 
