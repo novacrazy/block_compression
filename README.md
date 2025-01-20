@@ -1,5 +1,8 @@
 # block_compression
 
+[![Crate](https://img.shields.io/crates/v/block_compression.svg)](https://crates.io/crates/block_compression)
+[![API](https://docs.rs/block_compression/badge.svg)](https://docs.rs/block_compression)
+
 Texture block compression using WGPU compute shader.
 The shaders are a port of Intel's ISPC Texture Compressor's kernel to WGSL compute shader.
 
