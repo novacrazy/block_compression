@@ -8,17 +8,21 @@ name = "block_compression"
 description = "Texture block compression using WGPU compute shader"
 version = "0.1.0"
 license = "MIT"
+documentation = "https://docs.rs/block_compression"
+repository = "https://github.com/hasenbanck/block_compression"
 authors.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 keywords = ["texture", "image", "compress", "wgpu"]
-categories = ["rendering", "rendering::engine", ]
+categories = ["rendering", "rendering::engine"]
 
 [badges]
 maintenance = { status = "actively-developed" }
 
 [features]
-default = ["half"]
+default = ["bc6h", "bc7"]
+bc6h = ["half"]
+bc7 = []
 
 [dependencies]
 bytemuck = { workspace = true, features = ["derive"] }
@@ -39,6 +43,10 @@ image = { version = "0.25", default-features = false }
 intel_tex_2 = "0.4"
 pollster = "0.4"
 wgpu = "24"
+
+[package.metadata.docs.rs]
+features = ["bc6h", "bc7", "half"]
+rustdoc-args = ["--cfg", "docsrs"]
 
 [workspace]
 members = [

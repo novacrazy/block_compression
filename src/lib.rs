@@ -9,6 +9,12 @@
 //! * Metal
 //! * Vulkan
 //!
+//! ## DX12 pipeline creation
+//!
+//! The pipeline creation for BC7 and especially BC6H takes a long time under DX12. The DXC compiler
+//! seems to take a very long time to compile the shader. For this reason we moved them behind
+//! features, which are included in the default features.
+//!
 //! ## Supported block compressions
 //!
 //! Currently supported block compressions are:
@@ -20,6 +26,9 @@
 //!  * BC5
 //!  * BC6H
 //!  * BC7
+
+#![cfg_attr(docsrs, feature(doc_cfg))]
+
 mod block_compressor;
 pub mod decode;
 mod settings;
@@ -27,8 +36,15 @@ mod settings;
 use std::hash::{Hash, Hasher};
 
 pub use block_compressor::BlockCompressor;
+#[cfg(feature = "bc6h")]
+#[cfg_attr(docsrs, doc(cfg(feature = "bc6h")))]
 pub use half;
-pub use settings::{BC6HSettings, BC7Settings};
+#[cfg(feature = "bc6h")]
+#[cfg_attr(docsrs, doc(cfg(feature = "bc6h")))]
+pub use settings::BC6HSettings;
+#[cfg(feature = "bc7")]
+#[cfg_attr(docsrs, doc(cfg(feature = "bc7")))]
+pub use settings::BC7Settings;
 
 /// Compression variants supported by this crate for 8-bit LDR data.
 #[derive(Copy, Clone, Debug)]
@@ -43,8 +59,12 @@ pub enum CompressionVariant {
     BC4,
     /// BC5 compression (RG)
     BC5,
+    #[cfg(feature = "bc6h")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "bc6h")))]
     /// BC6H compression (RGB LDR)
     BC6H(BC6HSettings),
+    #[cfg(feature = "bc7")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "bc7")))]
     /// BC7 compression with smooth alpha (RGBA)
     BC7(BC7Settings),
 }
@@ -89,7 +109,11 @@ impl CompressionVariant {
     const fn block_byte_size(self) -> u32 {
         match self {
             Self::BC1 | Self::BC4 => 8,
-            Self::BC2 | Self::BC3 | Self::BC5 | Self::BC6H(..) | Self::BC7(..) => 16,
+            Self::BC2 | Self::BC3 | Self::BC5 => 16,
+            #[cfg(feature = "bc6h")]
+            Self::BC6H(..) => 16,
+            #[cfg(feature = "bc7")]
+            Self::BC7(..) => 16,
         }
     }
 
@@ -100,7 +124,9 @@ impl CompressionVariant {
             Self::BC3 => "bc3",
             Self::BC4 => "bc4",
             Self::BC5 => "bc5",
+            #[cfg(feature = "bc6h")]
             Self::BC6H(..) => "bc6h",
+            #[cfg(feature = "bc7")]
             Self::BC7(..) => "bc7",
         }
     }
@@ -112,7 +138,9 @@ impl CompressionVariant {
             Self::BC3 => "compress_bc3",
             Self::BC4 => "compress_bc4",
             Self::BC5 => "compress_bc5",
+            #[cfg(feature = "bc6h")]
             Self::BC6H(..) => "compress_bc6h",
+            #[cfg(feature = "bc7")]
             Self::BC7(..) => "compress_bc7",
         }
     }

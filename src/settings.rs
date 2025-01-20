@@ -1,6 +1,9 @@
+#[cfg(any(feature = "bc6h", feature = "bc7"))]
 use bytemuck::{Pod, Zeroable};
 
 /// Encoding settings for BC6H.
+#[cfg(feature = "bc6h")]
+#[cfg_attr(docsrs, doc(cfg(feature = "bc6h")))]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Pod, Zeroable)]
 #[repr(C)]
 pub struct BC6HSettings {
@@ -11,6 +14,7 @@ pub struct BC6HSettings {
     fast_skip_threshold: u32,
 }
 
+#[cfg(feature = "bc6h")]
 impl BC6HSettings {
     /// Very fast settings.
     pub const fn very_fast() -> Self {
@@ -68,6 +72,8 @@ impl BC6HSettings {
     }
 }
 
+#[cfg(feature = "bc7")]
+#[cfg_attr(docsrs, doc(cfg(feature = "bc7")))]
 /// Encoding settings for BC7.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Pod, Zeroable)]
 #[repr(C)]
@@ -83,6 +89,8 @@ pub struct BC7Settings {
     channels: u32,
 }
 
+#[cfg(feature = "bc7")]
+#[cfg_attr(docsrs, doc(cfg(feature = "bc7")))]
 impl BC7Settings {
     /// Opaque ultra fast settings.
     pub const fn opaque_ultra_fast() -> Self {

@@ -250,7 +250,7 @@ fn decode_smooth_alpha_block<const PIXEL_SIZE: usize>(
 }
 
 /// Decodes a BC7 block by reading 16 bytes from `compressed_block` and writing the RGB16F data (half float) into `decompressed_block` with `destination_pitch` many bytes per output row.
-#[cfg(feature = "half")]
+#[cfg(feature = "bc6h")]
 pub fn decode_block_bc6h(
     compressed_block: &[u8],
     decompressed_block: &mut [half::f16],
@@ -761,7 +761,7 @@ pub fn decode_block_bc6h(
 }
 
 /// Decodes a BC6H block by reading 16 bytes from `compressed_block` and writing the RGB32F data into `decompressed_block` with `destination_pitch` many bytes per output row.
-#[cfg(feature = "half")]
+#[cfg(feature = "bc6h")]
 #[inline(always)]
 pub fn decode_block_bc6h_float(
     compressed_block: &[u8],
@@ -789,6 +789,7 @@ pub fn decode_block_bc6h_float(
 
 /// Decodes a BC7 block by reading 16 bytes from `compressed_block` and writing the RGBA8 data into `decompressed_block` with `destination_pitch` many bytes per output row.
 #[allow(clippy::needless_range_loop)]
+#[cfg(feature = "bc7")]
 pub fn decode_block_bc7(
     compressed_block: &[u8],
     decompressed_block: &mut [u8],
@@ -1242,17 +1243,20 @@ pub fn decode_block_bc7(
     }
 }
 
+#[cfg(any(feature = "bc6h", feature = "bc7"))]
 #[inline]
 fn interpolate(a: i32, b: i32, weights: &[i32], index: i32) -> i32 {
     (a * (64 - weights[index as usize]) + b * weights[index as usize] + 32) >> 6
 }
 
+#[cfg(feature = "bc6h")]
 // http://graphics.stanford.edu/~seander/bithacks.html#VariableSignExtend
 #[inline]
 fn extend_sign(val: i32, bits: i32) -> i32 {
     (val << (32 - bits)) >> (32 - bits)
 }
 
+#[cfg(feature = "bc6h")]
 #[inline]
 fn transform_inverse(val: i32, a0: i32, bits: i32, is_signed: bool) -> i32 {
     // If the precision of A0 is "p" bits, then the transform algorithm is:
@@ -1265,6 +1269,7 @@ fn transform_inverse(val: i32, a0: i32, bits: i32, is_signed: bool) -> i32 {
     }
 }
 
+#[cfg(feature = "bc6h")]
 #[inline]
 fn unquantize(val: i32, bits: i32, is_signed: bool) -> i32 {
     if !is_signed {
@@ -1298,6 +1303,7 @@ fn unquantize(val: i32, bits: i32, is_signed: bool) -> i32 {
     }
 }
 
+#[cfg(feature = "bc6h")]
 #[inline]
 fn finish_unquantize(val: i32, is_signed: bool) -> u16 {
     if !is_signed {
@@ -1322,12 +1328,14 @@ fn finish_unquantize(val: i32, is_signed: bool) -> u16 {
 }
 
 /// Internal bitstream helper for reading bits from compressed data
+#[cfg(any(feature = "bc6h", feature = "bc7"))]
 #[derive(Debug, Clone, Copy)]
 struct BitStream {
     low: u64,
     high: u64,
 }
 
+#[cfg(any(feature = "bc6h", feature = "bc7"))]
 impl BitStream {
     /// Create a new bitstream from raw data.
     #[inline]
@@ -1337,11 +1345,13 @@ impl BitStream {
         Self { low, high }
     }
 
+    #[cfg(feature = "bc7")]
     #[inline]
     fn read_bit(&mut self) -> u32 {
         self.read_bits(1)
     }
 
+    #[cfg(feature = "bc6h")]
     #[inline]
     fn read_bit_i32(&mut self) -> i32 {
         self.read_bits(1) as i32
@@ -1361,11 +1371,13 @@ impl BitStream {
         bits
     }
 
+    #[cfg(feature = "bc6h")]
     #[inline]
     pub fn read_bits_i32(&mut self, num_bits: u32) -> i32 {
         self.read_bits(num_bits) as i32
     }
 
+    #[cfg(feature = "bc6h")]
     #[inline]
     fn read_bits_reversed(&mut self, num_bits: u32) -> i32 {
         let mut bits = self.read_bits_i32(num_bits);
@@ -1689,7 +1701,7 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "half")]
+    #[cfg(feature = "bc6h")]
     #[test]
     fn test_bc6h_block_0() {
         use half::f16;

@@ -21,6 +21,12 @@ Currently supported block compressions are:
 * BC6H
 * BC7
 
+## DX12 pipeline creation
+
+The pipeline creation for BC7 and especially BC6H takes a long time under DX12. The DXC compiler seems to take a very
+long time to compile the shader. For this reason we moved them behind features, which are included in the default
+features.
+
 ## License
 
 This project is licensed under the [MIT](LICENSE) license.
