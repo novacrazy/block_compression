@@ -47,7 +47,7 @@ pub use settings::BC6HSettings;
 #[cfg_attr(docsrs, doc(cfg(feature = "bc7")))]
 pub use settings::BC7Settings;
 
-/// Compression variants supported by this crate for 8-bit LDR data.
+/// Block compression variants supported by this crate.
 #[derive(Copy, Clone, Debug)]
 pub enum CompressionVariant {
     /// BC1 compression (RGB)
@@ -62,7 +62,7 @@ pub enum CompressionVariant {
     BC5,
     #[cfg(feature = "bc6h")]
     #[cfg_attr(docsrs, doc(cfg(feature = "bc6h")))]
-    /// BC6H compression (RGB LDR)
+    /// BC6H compression (RGB)
     BC6H(BC6HSettings),
     #[cfg(feature = "bc7")]
     #[cfg_attr(docsrs, doc(cfg(feature = "bc7")))]
