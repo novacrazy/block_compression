@@ -38,7 +38,7 @@ struct Task {
 }
 
 /// Compresses texture data with a block compression algorithm using WGPU compute shader.
-pub struct BlockCompressor {
+pub struct GpuBlockCompressor {
     scratch_buffer: Vec<u8>,
     task: Vec<Task>,
     uniforms_buffer: Buffer,
@@ -57,7 +57,7 @@ pub struct BlockCompressor {
     bc7_aligned_size: usize,
 }
 
-impl BlockCompressor {
+impl GpuBlockCompressor {
     /// Creates a new block compressor instance.
     pub fn new(device: Arc<Device>, queue: Arc<Queue>) -> Self {
         let limits = device.limits();

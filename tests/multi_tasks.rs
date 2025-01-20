@@ -10,7 +10,7 @@ mod common;
 
 fn test_multi_task_compression(variant: CompressionVariant) {
     let (device, queue) = create_wgpu_resources();
-    let mut block_compressor = BlockCompressor::new(device.clone(), queue.clone());
+    let mut block_compressor = GpuBlockCompressor::new(device.clone(), queue.clone());
 
     let (brick_texture, _) =
         read_image_and_create_texture(&device, &queue, BRICK_FILE_PATH, variant);

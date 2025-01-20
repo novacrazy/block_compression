@@ -1,7 +1,7 @@
 use std::{fs::File, path::PathBuf, sync::Arc, time::Instant};
 
 use block_compression::{
-    half::f16, BC6HSettings, BC7Settings, BlockCompressor, CompressionVariant,
+    half::f16, BC6HSettings, BC7Settings, CompressionVariant, GpuBlockCompressor,
 };
 use bytemuck::cast_slice;
 use ddsfile::{AlphaMode, D3D10ResourceDimension, Dds, DxgiFormat, NewDxgiParams};
@@ -24,7 +24,7 @@ fn main() {
     };
 
     let (device, queue) = create_resources();
-    let mut compressor: BlockCompressor = BlockCompressor::new(device.clone(), queue.clone());
+    let mut compressor: GpuBlockCompressor = GpuBlockCompressor::new(device.clone(), queue.clone());
 
     let start = Instant::now();
 
@@ -184,7 +184,7 @@ pub fn srgb_to_linear(srgb: u8) -> f64 {
     }
 }
 
-fn compress(compressor: &mut BlockCompressor, device: &Device, queue: &Queue) {
+fn compress(compressor: &mut GpuBlockCompressor, device: &Device, queue: &Queue) {
     let timestamp_query_set = device.create_query_set(&wgpu::QuerySetDescriptor {
         label: Some("timestamp query set"),
         count: 2,

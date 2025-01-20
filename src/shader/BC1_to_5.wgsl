@@ -315,7 +315,6 @@ fn bc1_refine(pe: ptr<function, vec2<i32>>, block: ptr<function, array<f32, 64>>
             shifted_bits = shifted_bits >> 2u;
 
             let x = 3.0 - q;
-            let y = q;
 
             sum_q += q;
             sum_qq += q * q;
@@ -352,11 +351,11 @@ fn bc1_refine(pe: ptr<function, vec2<i32>>, block: ptr<function, array<f32, 64>>
 }
 
 fn fix_qbits(qbits: u32) -> u32 {
-    const mask_01b: u32 = 0x55555555u;
-    const mask_10b: u32 = 0xAAAAAAAAu;
+    const MASK_01B: u32 = 0x55555555u;
+    const MASK_10B: u32 = 0xAAAAAAAAu;
 
-    let qbits0 = qbits & mask_01b;
-    let qbits1 = qbits & mask_10b;
+    let qbits0 = qbits & MASK_01B;
+    let qbits1 = qbits & MASK_10B;
     return (qbits1 >> 1u) + (qbits1 ^ (qbits0 << 1u));
 }
 

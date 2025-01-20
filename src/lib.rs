@@ -31,11 +31,12 @@
 
 mod block_compressor;
 pub mod decode;
+pub mod encode;
 mod settings;
 
 use std::hash::{Hash, Hasher};
 
-pub use block_compressor::BlockCompressor;
+pub use block_compressor::GpuBlockCompressor;
 #[cfg(feature = "bc6h")]
 #[cfg_attr(docsrs, doc(cfg(feature = "bc6h")))]
 pub use half;
