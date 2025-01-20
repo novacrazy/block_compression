@@ -15,6 +15,7 @@ edition.workspace = true
 rust-version.workspace = true
 keywords = ["texture", "image", "compress", "wgpu"]
 categories = ["rendering", "rendering::engine"]
+exclude = ["tests/images/"]
 
 [badges]
 maintenance = { status = "actively-developed" }
