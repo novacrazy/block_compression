@@ -531,9 +531,11 @@ pub fn compress_rgba8(
         CompressionVariant::BC5 => {
             compress_bc5(rgba_data, blocks_buffer, block_width, block_height, stride);
         }
+        #[cfg(feature = "bc6h")]
         CompressionVariant::BC6H(_) => {
             unimplemented!("CPU based BC6H compression not yet implemented yet");
         }
+        #[cfg(feature = "bc7")]
         CompressionVariant::BC7(_) => {
             unimplemented!("CPU based BC7 compression not yet implemented yet");
         }
