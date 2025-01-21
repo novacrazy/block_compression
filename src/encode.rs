@@ -1,12 +1,15 @@
 //! CPU based encoding.
 
 mod bc1_to_5;
+#[cfg(feature = "bc7")]
 mod bc7;
 
-use crate::{
-    encode::{bc1_to_5::BlockCompressorBC15, bc7::BlockCompressorBC7},
-    BC7Settings, CompressionVariant,
-};
+use self::bc1_to_5::BlockCompressorBC15;
+#[cfg(feature = "bc7")]
+use self::bc7::BlockCompressorBC7;
+#[cfg(feature = "bc7")]
+use crate::BC7Settings;
+use crate::CompressionVariant;
 
 /// Compresses raw RGBA8 data into BC1-7 block compressed format.
 ///
@@ -248,6 +251,7 @@ fn compress_bc5(
     }
 }
 
+#[cfg(feature = "bc7")]
 fn compress_bc7(
     rgba_data: &[u8],
     blocks_buffer: &mut [u8],
