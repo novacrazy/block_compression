@@ -29,14 +29,31 @@
 
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
+#[cfg(all(
+    feature = "wgpu",
+    any(feature = "bc15", feature = "bc6h", feature = "bc7")
+))]
 mod block_compressor;
 pub mod decode;
 pub mod encode;
 mod settings;
 
+#[cfg(any(feature = "bc15", feature = "bc6h", feature = "bc7"))]
 use std::hash::{Hash, Hasher};
 
+#[cfg(all(
+    feature = "wgpu",
+    any(feature = "bc15", feature = "bc6h", feature = "bc7")
+))]
+#[cfg_attr(
+    docsrs,
+    doc(cfg(all(
+        feature = "wgpu",
+        any(feature = "bc15", feature = "bc6h", feature = "bc7")
+    )))
+)]
 pub use block_compressor::GpuBlockCompressor;
+pub use bytemuck;
 #[cfg(feature = "bc6h")]
 #[cfg_attr(docsrs, doc(cfg(feature = "bc6h")))]
 pub use half;
@@ -49,15 +66,30 @@ pub use settings::BC7Settings;
 
 /// Block compression variants supported by this crate.
 #[derive(Copy, Clone, Debug)]
+#[cfg(any(feature = "bc15", feature = "bc6h", feature = "bc7"))]
+#[cfg_attr(
+    docsrs,
+    doc(cfg(any(feature = "bc15", feature = "bc6h", feature = "bc7")))
+)]
 pub enum CompressionVariant {
+    #[cfg(feature = "bc15")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "bc15")))]
     /// BC1 compression (RGB)
     BC1,
+    #[cfg(feature = "bc15")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "bc15")))]
     /// BC2 compression with sharp alpha (RGBA)
     BC2,
+    #[cfg(feature = "bc15")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "bc15")))]
     /// BC3 compression with smooth alpha (RGBA)
     BC3,
+    #[cfg(feature = "bc15")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "bc15")))]
     /// BC4 compression (R)
     BC4,
+    #[cfg(feature = "bc15")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "bc15")))]
     /// BC5 compression (RG)
     BC5,
     #[cfg(feature = "bc6h")]
@@ -70,20 +102,24 @@ pub enum CompressionVariant {
     BC7(BC7Settings),
 }
 
+#[cfg(any(feature = "bc15", feature = "bc6h", feature = "bc7"))]
 impl PartialEq for CompressionVariant {
     fn eq(&self, other: &Self) -> bool {
         std::mem::discriminant(self) == std::mem::discriminant(other)
     }
 }
 
+#[cfg(any(feature = "bc15", feature = "bc6h", feature = "bc7"))]
 impl Eq for CompressionVariant {}
 
+#[cfg(any(feature = "bc15", feature = "bc6h", feature = "bc7"))]
 impl Hash for CompressionVariant {
     fn hash<H: Hasher>(&self, state: &mut H) {
         std::mem::discriminant(self).hash(state);
     }
 }
 
+#[cfg(any(feature = "bc15", feature = "bc6h", feature = "bc7"))]
 impl CompressionVariant {
     /// Returns the bytes per row for the given width.
     ///
@@ -109,7 +145,9 @@ impl CompressionVariant {
 
     const fn block_byte_size(self) -> u32 {
         match self {
+            #[cfg(feature = "bc15")]
             Self::BC1 | Self::BC4 => 8,
+            #[cfg(feature = "bc15")]
             Self::BC2 | Self::BC3 | Self::BC5 => 16,
             #[cfg(feature = "bc6h")]
             Self::BC6H(..) => 16,
@@ -118,12 +156,18 @@ impl CompressionVariant {
         }
     }
 
+    #[cfg(feature = "wgpu")]
     const fn name(self) -> &'static str {
         match self {
+            #[cfg(feature = "bc15")]
             Self::BC1 => "bc1",
+            #[cfg(feature = "bc15")]
             Self::BC2 => "bc2",
+            #[cfg(feature = "bc15")]
             Self::BC3 => "bc3",
+            #[cfg(feature = "bc15")]
             Self::BC4 => "bc4",
+            #[cfg(feature = "bc15")]
             Self::BC5 => "bc5",
             #[cfg(feature = "bc6h")]
             Self::BC6H(..) => "bc6h",
@@ -132,12 +176,18 @@ impl CompressionVariant {
         }
     }
 
+    #[cfg(feature = "wgpu")]
     const fn entry_point(self) -> &'static str {
         match self {
+            #[cfg(feature = "bc15")]
             Self::BC1 => "compress_bc1",
+            #[cfg(feature = "bc15")]
             Self::BC2 => "compress_bc2",
+            #[cfg(feature = "bc15")]
             Self::BC3 => "compress_bc3",
+            #[cfg(feature = "bc15")]
             Self::BC4 => "compress_bc4",
+            #[cfg(feature = "bc15")]
             Self::BC5 => "compress_bc5",
             #[cfg(feature = "bc6h")]
             Self::BC6H(..) => "compress_bc6h",

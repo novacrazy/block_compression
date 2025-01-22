@@ -1,10 +1,13 @@
 //! CPU based decoding.
 
+#[cfg(any(feature = "bc15", feature = "bc6h", feature = "bc7"))]
 mod block;
 
 #[cfg(feature = "bc7")]
 #[cfg_attr(docsrs, doc(cfg(feature = "bc7")))]
 pub use self::block::decode_block_bc7;
+#[cfg(feature = "bc15")]
+#[cfg_attr(docsrs, doc(cfg(feature = "bc15")))]
 pub use self::block::{
     decode_block_bc1, decode_block_bc2, decode_block_bc3, decode_block_bc4, decode_block_bc5,
 };
@@ -15,9 +18,11 @@ pub use self::block::{decode_block_bc6h, decode_block_bc6h_float};
 use crate::BC6HSettings;
 #[cfg(feature = "bc7")]
 use crate::BC7Settings;
+#[cfg(any(feature = "bc15", feature = "bc6h", feature = "bc7"))]
 use crate::CompressionVariant;
 
 /// Trait to decode a BC variant into RGBA8 data.
+#[cfg(any(feature = "bc15", feature = "bc6h", feature = "bc7"))]
 trait BlockRgba8Decoder {
     fn decode_block_rgba8(compressed: &[u8], decompressed: &mut [u8], pitch: usize);
     fn block_byte_size() -> u32;
@@ -37,16 +42,22 @@ trait BlockRgba32fDecoder {
     fn block_byte_size() -> u32;
 }
 
+#[cfg(feature = "bc15")]
 struct BC1Decoder;
+#[cfg(feature = "bc15")]
 struct BC2Decoder;
+#[cfg(feature = "bc15")]
 struct BC3Decoder;
+#[cfg(feature = "bc15")]
 struct BC4Decoder;
+#[cfg(feature = "bc15")]
 struct BC5Decoder;
 #[cfg(feature = "bc6h")]
 struct BC6HDecoder;
 #[cfg(feature = "bc7")]
 struct BC7Decoder;
 
+#[cfg(feature = "bc15")]
 impl BlockRgba8Decoder for BC1Decoder {
     #[inline(always)]
     fn decode_block_rgba8(compressed: &[u8], decompressed: &mut [u8], pitch: usize) {
@@ -58,6 +69,7 @@ impl BlockRgba8Decoder for BC1Decoder {
     }
 }
 
+#[cfg(feature = "bc15")]
 impl BlockRgba8Decoder for BC2Decoder {
     #[inline(always)]
     fn decode_block_rgba8(compressed: &[u8], decompressed: &mut [u8], pitch: usize) {
@@ -69,6 +81,7 @@ impl BlockRgba8Decoder for BC2Decoder {
     }
 }
 
+#[cfg(feature = "bc15")]
 impl BlockRgba8Decoder for BC3Decoder {
     #[inline(always)]
     fn decode_block_rgba8(compressed: &[u8], decompressed: &mut [u8], pitch: usize) {
@@ -80,6 +93,7 @@ impl BlockRgba8Decoder for BC3Decoder {
     }
 }
 
+#[cfg(feature = "bc15")]
 impl BlockRgba8Decoder for BC4Decoder {
     #[inline(always)]
     fn decode_block_rgba8(compressed: &[u8], decompressed: &mut [u8], pitch: usize) {
@@ -106,6 +120,7 @@ impl BlockRgba8Decoder for BC4Decoder {
     }
 }
 
+#[cfg(feature = "bc15")]
 impl BlockRgba8Decoder for BC5Decoder {
     #[inline(always)]
     fn decode_block_rgba8(compressed: &[u8], decompressed: &mut [u8], pitch: usize) {
@@ -182,6 +197,7 @@ impl BlockRgba8Decoder for BC7Decoder {
     }
 }
 
+#[cfg(any(feature = "bc15", feature = "bc6h", feature = "bc7"))]
 fn decompress_rgba8<D: BlockRgba8Decoder>(
     width: u32,
     height: u32,
@@ -312,6 +328,11 @@ fn decompress_rgba32f<D: BlockRgba32fDecoder>(
 /// # Panics
 /// - The `blocks_data` has not the expected size (`variant.blocks_byte_size()`)
 /// - The `rgba_data` has not the expected size (`width * height * 4`)
+#[cfg(any(feature = "bc15", feature = "bc6h", feature = "bc7"))]
+#[cfg_attr(
+    docsrs,
+    doc(cfg(any(feature = "bc15", feature = "bc6h", feature = "bc7")))
+)]
 pub fn decompress_blocks_as_rgba8(
     variant: CompressionVariant,
     width: u32,
@@ -334,18 +355,23 @@ pub fn decompress_blocks_as_rgba8(
     );
 
     match variant {
+        #[cfg(feature = "bc15")]
         CompressionVariant::BC1 => {
             decompress_rgba8::<BC1Decoder>(width, height, blocks_data, rgba_data)
         }
+        #[cfg(feature = "bc15")]
         CompressionVariant::BC2 => {
             decompress_rgba8::<BC2Decoder>(width, height, blocks_data, rgba_data)
         }
+        #[cfg(feature = "bc15")]
         CompressionVariant::BC3 => {
             decompress_rgba8::<BC3Decoder>(width, height, blocks_data, rgba_data)
         }
+        #[cfg(feature = "bc15")]
         CompressionVariant::BC4 => {
             decompress_rgba8::<BC4Decoder>(width, height, blocks_data, rgba_data)
         }
+        #[cfg(feature = "bc15")]
         CompressionVariant::BC5 => {
             decompress_rgba8::<BC5Decoder>(width, height, blocks_data, rgba_data)
         }
@@ -394,6 +420,7 @@ pub fn decompress_blocks_as_rgba16f(
         CompressionVariant::BC6H(..) => {
             decompress_rgba16f::<BC6HDecoder>(width, height, blocks_data, rgba_data)
         }
+        #[allow(unreachable_patterns)]
         _ => {
             panic!("unsupported compression variant");
         }
@@ -433,6 +460,7 @@ pub fn decompress_blocks_as_rgba32f(
         CompressionVariant::BC6H(..) => {
             decompress_rgba32f::<BC6HDecoder>(width, height, blocks_data, rgba_data)
         }
+        #[allow(unreachable_patterns)]
         _ => {
             panic!("unsupported compression variant");
         }

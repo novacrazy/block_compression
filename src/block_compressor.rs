@@ -80,6 +80,7 @@ impl GpuBlockCompressor {
             size.div_ceil(alignment) * alignment
         };
 
+        #[cfg(feature = "bc15")]
         let shader_module_bc1_to_5 =
             device.create_shader_module(include_wgsl!("shader/bc1_to_5.wgsl"));
         #[cfg(feature = "bc6h")]
@@ -113,6 +114,7 @@ impl GpuBlockCompressor {
         let mut bind_group_layouts = HashMap::new();
         let mut pipelines = HashMap::new();
 
+        #[cfg(feature = "bc15")]
         Self::create_pipeline(
             &device,
             &shader_module_bc1_to_5,
@@ -120,6 +122,7 @@ impl GpuBlockCompressor {
             &mut pipelines,
             CompressionVariant::BC1,
         );
+        #[cfg(feature = "bc15")]
         Self::create_pipeline(
             &device,
             &shader_module_bc1_to_5,
@@ -127,6 +130,7 @@ impl GpuBlockCompressor {
             &mut pipelines,
             CompressionVariant::BC2,
         );
+        #[cfg(feature = "bc15")]
         Self::create_pipeline(
             &device,
             &shader_module_bc1_to_5,
@@ -134,6 +138,7 @@ impl GpuBlockCompressor {
             &mut pipelines,
             CompressionVariant::BC3,
         );
+        #[cfg(feature = "bc15")]
         Self::create_pipeline(
             &device,
             &shader_module_bc1_to_5,
@@ -141,6 +146,7 @@ impl GpuBlockCompressor {
             &mut pipelines,
             CompressionVariant::BC4,
         );
+        #[cfg(feature = "bc15")]
         Self::create_pipeline(
             &device,
             &shader_module_bc1_to_5,
@@ -253,6 +259,7 @@ impl GpuBlockCompressor {
                     count: None,
                 });
             }
+            #[allow(unreachable_patterns)]
             _ => {}
         }
 
@@ -360,6 +367,7 @@ impl GpuBlockCompressor {
             .expect("Can't find bind group layout for variant");
 
         let bind_group = match variant {
+            #[cfg(feature = "bc15")]
             CompressionVariant::BC1
             | CompressionVariant::BC2
             | CompressionVariant::BC3
@@ -546,6 +554,7 @@ impl GpuBlockCompressor {
                 .task
                 .iter_mut()
                 .filter_map(|task| {
+                    #[allow(irrefutable_let_patterns)]
                     if let CompressionVariant::BC6H(settings) = task.variant {
                         Some((settings, task))
                     } else {
@@ -579,6 +588,7 @@ impl GpuBlockCompressor {
                 .task
                 .iter_mut()
                 .filter_map(|task| {
+                    #[allow(irrefutable_let_patterns)]
                     if let CompressionVariant::BC7(settings) = task.variant {
                         Some((settings, task))
                     } else {
@@ -639,6 +649,8 @@ impl GpuBlockCompressor {
                         &[task.uniform_offset, task.setting_offset],
                     );
                 }
+                #[allow(irrefutable_let_patterns)]
+                #[allow(unreachable_patterns)]
                 _ => {
                     pass.set_bind_group(0, &task.bind_group, &[task.uniform_offset]);
                 }

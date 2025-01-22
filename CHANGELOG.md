@@ -7,8 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [unreleased]
 
-### Updated
+## [0.2.0] - 2025-01-22
 
+- Provide more feature flags for optional features
+- Implemented CPU based BC6H encoding
 - Implemented CPU based BC7 encoding
 
 ## [0.1.1] - 2025-01-20

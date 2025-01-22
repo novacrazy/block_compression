@@ -104,23 +104,6 @@ fn get_unquant_value(bits: u32, index: i32) -> i32 {
     }
 }
 
-fn get_skips(part_id: i32) -> vec3<u32> {
-    const skip_table = array<u32, 128>(
-        0xf0u, 0xf0u, 0xf0u, 0xf0u, 0xf0u, 0xf0u, 0xf0u, 0xf0u, 0xf0u, 0xf0u, 0xf0u, 0xf0u, 0xf0u, 0xf0u, 0xf0u, 0xf0u,
-        0xf0u, 0x20u, 0x80u, 0x20u, 0x20u, 0x80u, 0x80u, 0xf0u, 0x20u, 0x80u, 0x20u, 0x20u, 0x80u, 0x80u, 0x20u, 0x20u,
-        0xf0u, 0xf0u, 0x60u, 0x80u, 0x20u, 0x80u, 0xf0u, 0xf0u, 0x20u, 0x80u, 0x20u, 0x20u, 0x20u, 0xf0u, 0xf0u, 0x60u,
-        0x60u, 0x20u, 0x60u, 0x80u, 0xf0u, 0xf0u, 0x20u, 0x20u, 0xf0u, 0xf0u, 0xf0u, 0xf0u, 0xf0u, 0x20u, 0x20u, 0xf0u,
-        0x3fu, 0x38u, 0xf8u, 0xf3u, 0x8fu, 0x3fu, 0xf3u, 0xf8u, 0x8fu, 0x8fu, 0x6fu, 0x6fu, 0x6fu, 0x5fu, 0x3fu, 0x38u,
-        0x3fu, 0x38u, 0x8fu, 0xf3u, 0x3fu, 0x38u, 0x6fu, 0xa8u, 0x53u, 0x8fu, 0x86u, 0x6au, 0x8fu, 0x5fu, 0xfau, 0xf8u,
-		0x8fu, 0xf3u, 0x3fu, 0x5au, 0x6au, 0xa8u, 0x89u, 0xfau, 0xf6u, 0x3fu, 0xf8u, 0x5fu, 0xf3u, 0xf6u, 0xf6u, 0xf8u,
-        0x3fu, 0xf3u, 0x5fu, 0x5fu, 0x5fu, 0x8fu, 0x5fu, 0xafu, 0x5fu, 0xafu, 0x8fu, 0xdfu, 0xf3u, 0xcfu, 0x3fu, 0x38u,
-    );
-
-    let skip_packed = skip_table[part_id];
-
-    return vec3<u32>(0u, skip_packed >> 4u, skip_packed & 15u);
-}
-
 fn get_pattern(part_id: i32) -> u32 {
     const pattern_table = array<u32, 128>(
         0x50505050u, 0x40404040u, 0x54545454u, 0x54505040u, 0x50404000u, 0x55545450u, 0x55545040u, 0x54504000u,
@@ -169,6 +152,23 @@ fn get_pattern_mask(part_id: i32, j: u32) -> u32 {
     let mask1 = mask_packed >> 16u;
 
     return select(select(mask1, mask0, j == 0), ~mask0 & ~mask1, j == 2);
+}
+
+fn get_skips(part_id: i32) -> vec3<u32> {
+    const skip_table = array<u32, 128>(
+        0xf0u, 0xf0u, 0xf0u, 0xf0u, 0xf0u, 0xf0u, 0xf0u, 0xf0u, 0xf0u, 0xf0u, 0xf0u, 0xf0u, 0xf0u, 0xf0u, 0xf0u, 0xf0u,
+        0xf0u, 0x20u, 0x80u, 0x20u, 0x20u, 0x80u, 0x80u, 0xf0u, 0x20u, 0x80u, 0x20u, 0x20u, 0x80u, 0x80u, 0x20u, 0x20u,
+        0xf0u, 0xf0u, 0x60u, 0x80u, 0x20u, 0x80u, 0xf0u, 0xf0u, 0x20u, 0x80u, 0x20u, 0x20u, 0x20u, 0xf0u, 0xf0u, 0x60u,
+        0x60u, 0x20u, 0x60u, 0x80u, 0xf0u, 0xf0u, 0x20u, 0x20u, 0xf0u, 0xf0u, 0xf0u, 0xf0u, 0xf0u, 0x20u, 0x20u, 0xf0u,
+        0x3fu, 0x38u, 0xf8u, 0xf3u, 0x8fu, 0x3fu, 0xf3u, 0xf8u, 0x8fu, 0x8fu, 0x6fu, 0x6fu, 0x6fu, 0x5fu, 0x3fu, 0x38u,
+        0x3fu, 0x38u, 0x8fu, 0xf3u, 0x3fu, 0x38u, 0x6fu, 0xa8u, 0x53u, 0x8fu, 0x86u, 0x6au, 0x8fu, 0x5fu, 0xfau, 0xf8u,
+		0x8fu, 0xf3u, 0x3fu, 0x5au, 0x6au, 0xa8u, 0x89u, 0xfau, 0xf6u, 0x3fu, 0xf8u, 0x5fu, 0xf3u, 0xf6u, 0xf6u, 0xf8u,
+        0x3fu, 0xf3u, 0x5fu, 0x5fu, 0x5fu, 0x8fu, 0x5fu, 0xafu, 0x5fu, 0xafu, 0x8fu, 0xdfu, 0xf3u, 0xcfu, 0x3fu, 0x38u,
+    );
+
+    let skip_packed = skip_table[part_id];
+
+    return vec3<u32>(0u, skip_packed >> 4u, skip_packed & 15u);
 }
 
 fn get_mode_prefix(mode: u32) -> u32 {
@@ -510,16 +510,6 @@ fn block_pca_axis(axis: ptr<function, vec4<f32>>, dc: ptr<function, vec4<f32>>, 
     compute_axis(axis, &covar, power_iterations, channels);
 }
 
-fn block_pca_bound(block: ptr<function, array<f32, 64>>, mask: u32, channels: u32) -> f32 {
-    var stats: array<f32, 15>;
-    compute_stats_masked(&stats, block, mask, channels);
-
-    var covar: array<f32, 10>;
-    covar_from_stats(&covar, stats, channels);
-
-    return get_pca_bound(covar, channels);
-}
-
 fn block_pca_bound_split(block: ptr<function, array<f32, 64>>, mask: u32, full_stats: array<f32, 15>, channels: u32) -> f32 {
     var stats: array<f32, 15>;
     compute_stats_masked(&stats, block, mask, channels);
@@ -707,22 +697,6 @@ fn bc7_code_qblock(state: ptr<function, State>, qpos: ptr<function, u32>, qblock
     }
 }
 
-fn bc7_code_apply_swap_mode456(qep: ptr<function, array<i32, 24>>, channels: u32, qblock: ptr<function, vec2<u32>>, bits: u32) {
-    let levels = 1u << bits;
-
-    if (((*qblock)[0] & 15u) >= levels / 2u) {
-        for (var p = 0u; p < channels; p++) {
-            let temp = (*qep)[p];
-            (*qep)[p] = (*qep)[channels + p];
-            (*qep)[channels + p] = temp;
-        }
-
-        for (var k = 0u; k < 2u; k++) {
-            (*qblock)[k] = (0x11111111u * (levels - 1u)) - (*qblock)[k];
-        }
-    }
-}
-
 fn bc7_code_adjust_skip_mode01237(state: ptr<function, State>, mode: u32, part_id: i32) {
     let pairs = select(2u, 3u, mode == 0u || mode == 2u);
     let bits = select(2u, 3u, mode == 0u || mode == 1u);
@@ -738,6 +712,22 @@ fn bc7_code_adjust_skip_mode01237(state: ptr<function, State>, mode: u32, part_i
     for (var j = 1u; j < pairs; j++) {
         let k = skips[j];
         data_shl_1bit_from(state, 128u + (pairs - 1u) - (15u - k) * bits);
+    }
+}
+
+fn bc7_code_apply_swap_mode456(qep: ptr<function, array<i32, 24>>, channels: u32, qblock: ptr<function, vec2<u32>>, bits: u32) {
+    let levels = 1u << bits;
+
+    if (((*qblock)[0] & 15u) >= levels / 2u) {
+        for (var p = 0u; p < channels; p++) {
+            let temp = (*qep)[p];
+            (*qep)[p] = (*qep)[channels + p];
+            (*qep)[channels + p] = temp;
+        }
+
+        for (var k = 0u; k < 2u; k++) {
+            (*qblock)[k] = (0x11111111u * (levels - 1u)) - (*qblock)[k];
+        }
     }
 }
 
@@ -772,8 +762,6 @@ fn bc7_code_apply_swap_mode01237(qep: ptr<function, array<i32, 24>>, qblock: vec
 
 fn bc6h_code_2p(state: ptr<function, State>, qep: ptr<function, array<i32, 24>>, qblock: vec2<u32>, part_id: i32, mode: u32) {
     let bits = 3u;
-    let pairs = 2u;
-    let channels = 3u;
 
     let flips = bc7_code_apply_swap_mode01237(qep, qblock, 1u, part_id);
 
@@ -932,8 +920,8 @@ fn bc6h_enc_1p(state: ptr<function, State>, block: ptr<function, array<f32, 64>>
     var err = block_quant(&qblock, block, 4u, &ep, 0u, 3u);
 
     // Refine
-    let refineIterations = settings.refine_iterations_1p;
-    for (var i = 0u; i < refineIterations; i++) {
+    let refine_iterations = settings.refine_iterations_1p;
+    for (var i = 0u; i < refine_iterations; i++) {
         opt_endpoints(&ep, 0, block, 4, qblock, 0xFFFFFFFFu, 3u);
         ep_quant_dequant_bc6h(state, &qep, &ep, 1u);
         err = block_quant(&qblock, block, 4u, &ep, 0u, 3u);
@@ -989,7 +977,7 @@ fn reverse_bits(v: u32, bits: u32) -> u32 {
     }
 
     if bits == 6u {
-        var vv = (v & 0x5555u) * 2u + ((v >> 1u) & 0x5555u);
+        let vv = (v & 0x5555u) * 2u + ((v >> 1u) & 0x5555u);
         return (vv >> 4u) + ((vv >> 2u) & 3u) * 4u + (vv & 3u) * 16u;
     }
 

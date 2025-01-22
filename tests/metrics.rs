@@ -2,8 +2,6 @@ use block_compression::{
     decode::decompress_blocks_as_rgba8, encode::compress_rgba8, BC6HSettings, BC7Settings,
     CompressionVariant, GpuBlockCompressor,
 };
-use half::f16;
-use intel_tex_2::{bc6h, RgbaSurface};
 use wgpu::{CommandEncoderDescriptor, ComputePassDescriptor, TextureViewDescriptor};
 
 use self::common::{
@@ -144,47 +142,10 @@ fn compress_image_reference(
     height: u32,
     data: &[u8],
 ) -> Vec<u8> {
-    match variant {
-        CompressionVariant::BC1 | CompressionVariant::BC3 | CompressionVariant::BC7(..) => {
-            let output_size = variant.blocks_byte_size(width, height);
-            let mut blocks = vec![0; output_size];
-            compress_rgba8(variant, data, &mut blocks, width, height, width * 4);
-            blocks
-        }
-        CompressionVariant::BC6H(setting) => {
-            let settings = if setting == BC6HSettings::very_fast() {
-                bc6h::very_fast_settings()
-            } else if setting == BC6HSettings::fast() {
-                bc6h::very_settings()
-            } else if setting == BC6HSettings::basic() {
-                bc6h::basic_settings()
-            } else if setting == BC6HSettings::slow() {
-                bc6h::slow_settings()
-            } else if setting == BC6HSettings::very_slow() {
-                bc6h::very_slow_settings()
-            } else {
-                panic!("Unsupported BC6H setting");
-            };
-
-            let rgba_f16_data: Vec<u8> = data
-                .iter()
-                .flat_map(|color| f16::from_f64(srgb_to_linear(*color)).to_le_bytes())
-                .collect();
-
-            bc6h::compress_blocks(
-                &settings,
-                &RgbaSurface {
-                    data: &rgba_f16_data,
-                    width,
-                    height,
-                    stride: width * 4 * size_of::<f16>() as u32,
-                },
-            )
-        }
-        _ => {
-            panic!("Unsupported variant")
-        }
-    }
+    let output_size = variant.blocks_byte_size(width, height);
+    let mut blocks = vec![0; output_size];
+    compress_rgba8(variant, data, &mut blocks, width, height, width * 4);
+    blocks
 }
 
 fn compress_image(image_path: &str, variant: CompressionVariant) -> (u32, u32, Vec<u8>, Vec<u8>) {

@@ -7,11 +7,11 @@ use bytemuck::{Pod, Zeroable};
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Pod, Zeroable)]
 #[repr(C)]
 pub struct BC6HSettings {
-    slow_mode: u32,
-    fast_mode: u32,
-    refine_iterations_1p: u32,
-    refine_iterations_2p: u32,
-    fast_skip_threshold: u32,
+    pub(crate) slow_mode: u32,
+    pub(crate) fast_mode: u32,
+    pub(crate) refine_iterations_1p: u32,
+    pub(crate) refine_iterations_2p: u32,
+    pub(crate) fast_skip_threshold: u32,
 }
 
 #[cfg(feature = "bc6h")]

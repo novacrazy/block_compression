@@ -1,6 +1,6 @@
 //! Direct Rust port the "bcdec.h - v0.98"
 //!
-//! https://github.com/iOrange/bcdec/blob/main/bcdec.h
+//! <https://github.com/iOrange/bcdec/blob/main/bcdec.h>
 //!
 //! # CREDITS
 //!
@@ -45,6 +45,7 @@
 //! For more information, please refer to <https://unlicense.org>
 
 /// Decodes a BC1 block by reading 8 bytes from `compressed_block` and writing the RGBA8 data into `decompressed_block` with `destination_pitch` many bytes per output row.
+#[cfg(feature = "bc15")]
 #[inline(always)]
 pub fn decode_block_bc1(
     compressed_block: &[u8],
@@ -55,6 +56,7 @@ pub fn decode_block_bc1(
 }
 
 /// Decodes a BC2 block by reading 16 bytes from `compressed_block` and writing the RGBA8 data into `decompressed_block` with `destination_pitch` many bytes per output row.
+#[cfg(feature = "bc15")]
 #[inline(always)]
 pub fn decode_block_bc2(
     compressed_block: &[u8],
@@ -70,6 +72,7 @@ pub fn decode_block_bc2(
 }
 
 /// Decodes a BC3 block by reading 16 bytes from `compressed_block` and writing the RGBA8 data into `decompressed_block` with `destination_pitch` many bytes per output row.
+#[cfg(feature = "bc15")]
 #[inline(always)]
 pub fn decode_block_bc3(
     compressed_block: &[u8],
@@ -89,6 +92,7 @@ pub fn decode_block_bc3(
 }
 
 /// Decodes a BC4 block by reading 8 bytes from `compressed_block` and writing the R8 data into `decompressed_block` with `destination_pitch` many bytes per output row.
+#[cfg(feature = "bc15")]
 #[inline(always)]
 pub fn decode_block_bc4(
     compressed_block: &[u8],
@@ -99,6 +103,7 @@ pub fn decode_block_bc4(
 }
 
 /// Decodes a BC5 block by reading 16 bytes from `compressed_block` and writing the RG8 data into `decompressed_block` with `destination_pitch` many bytes per output row.
+#[cfg(feature = "bc15")]
 #[inline(always)]
 pub fn decode_block_bc5(
     compressed_block: &[u8],
@@ -114,6 +119,7 @@ pub fn decode_block_bc5(
 }
 
 /// Decompresses a BC1/DXT1 color block
+#[cfg(feature = "bc15")]
 #[inline(always)]
 fn decode_color_block<const OPAQUE_MODE: bool>(
     compressed_block: &[u8],
@@ -191,6 +197,7 @@ fn decode_color_block<const OPAQUE_MODE: bool>(
 }
 
 /// Decodes a BC2/DXT3 alpha block (sharp transitions)
+#[cfg(feature = "bc15")]
 #[inline(always)]
 fn decode_sharp_alpha_block(
     compressed_block: &[u8],
@@ -208,6 +215,7 @@ fn decode_sharp_alpha_block(
 }
 
 /// Decodes a BC2/DXT3 alpha block (smooth transitions)
+#[cfg(feature = "bc15")]
 #[inline(always)]
 #[rustfmt::skip]
 fn decode_smooth_alpha_block<const PIXEL_SIZE: usize>(
@@ -788,8 +796,8 @@ pub fn decode_block_bc6h_float(
 }
 
 /// Decodes a BC7 block by reading 16 bytes from `compressed_block` and writing the RGBA8 data into `decompressed_block` with `destination_pitch` many bytes per output row.
-#[allow(clippy::needless_range_loop)]
 #[cfg(feature = "bc7")]
+#[allow(clippy::needless_range_loop)]
 pub fn decode_block_bc7(
     compressed_block: &[u8],
     decompressed_block: &mut [u8],
@@ -1250,9 +1258,9 @@ fn interpolate(a: i32, b: i32, weights: &[i32], index: i32) -> i32 {
 }
 
 #[cfg(feature = "bc6h")]
-// http://graphics.stanford.edu/~seander/bithacks.html#VariableSignExtend
 #[inline]
 fn extend_sign(val: i32, bits: i32) -> i32 {
+    // http://graphics.stanford.edu/~seander/bithacks.html#VariableSignExtend
     (val << (32 - bits)) >> (32 - bits)
 }
 
@@ -1788,7 +1796,7 @@ mod tests {
     }
 
     #[test]
-    fn test_bc7_bloock_0() {
+    fn test_bc7_block_0() {
         let compressed_block = [
             0x40, 0xAF, 0xF6, 0xB, 0xFD, 0x2E, 0xFF, 0xFF, 0x11, 0x71, 0x10, 0xA1, 0x21, 0xF2,
             0x33, 0x73,
@@ -1810,7 +1818,7 @@ mod tests {
     }
 
     #[test]
-    fn test_bc7_bloock_1() {
+    fn test_bc7_block_1() {
         let compressed_block = [
             0xC0, 0x8C, 0xEF, 0xA2, 0xBB, 0xDC, 0xFE, 0x7F, 0x6C, 0x55, 0x6A, 0x34, 0x4F, 0x0,
             0x5D, 0x0,
