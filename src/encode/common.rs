@@ -214,7 +214,7 @@ pub(crate) fn get_pca_bound(covar: &[f32; 10], channels: usize) -> f32 {
         *covar_scaled *= inv_var;
     }
 
-    const EPS: f32 = f32::EPSILON;
+    const EPS: f32 = sq(0.001);
     covar_scaled[0] += EPS;
     covar_scaled[4] += EPS;
     covar_scaled[7] += EPS;
@@ -384,7 +384,7 @@ pub(crate) fn block_pca_axis(
         *covar *= INV_VAR;
     }
 
-    const EPS: f32 = f32::EPSILON;
+    const EPS: f32 = sq(0.001);
     covar[0] += EPS;
     covar[4] += EPS;
     covar[7] += EPS;

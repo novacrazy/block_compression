@@ -116,22 +116,22 @@ pub fn calculate_image_metrics_rgba8(
 fn print_metrics(name: &str, metrics: &PsnrResult) {
     println!("-----------------------");
     println!("Image name: {}", name);
-    println!("Overall PSNR: {:.2} dB", metrics.overall_psnr);
-    println!("Overall MSE: {:.6}", metrics.overall_mse);
+    println!("Overall PSNR: {:.4} dB", metrics.overall_psnr);
+    println!("Overall MSE: {:.9}", metrics.overall_mse);
     println!(
-        "Red channel PSNR: {:.2} dB",
+        "Red channel PSNR: {:.4} dB",
         metrics.channel_results.red.psnr
     );
     println!(
-        "Green channel PSNR: {:.2} dB",
+        "Green channel PSNR: {:.4} dB",
         metrics.channel_results.green.psnr
     );
     println!(
-        "Blue channel PSNR: {:.2} dB",
+        "Blue channel PSNR: {:.4} dB",
         metrics.channel_results.blue.psnr
     );
     println!(
-        "Alpha channel PSNR: {:.2} dB",
+        "Alpha channel PSNR: {:.4} dB",
         metrics.channel_results.alpha.psnr
     );
     println!("-----------------------");
@@ -241,7 +241,7 @@ fn compare_psnr(image_path: &str, variant: CompressionVariant, channels: u32) {
     print_metrics(image_name, &psnr);
     print_metrics(image_name, &reference_psnr);
 
-    const DIFFERENCE: f64 = 0.01;
+    const DIFFERENCE: f64 = 0.0025;
 
     if f64::abs(reference_psnr.overall_psnr - psnr.overall_psnr) > DIFFERENCE {
         panic!(
