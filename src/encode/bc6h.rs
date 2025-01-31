@@ -142,7 +142,9 @@ impl<'a> BlockCompressorBC6H<'a> {
     }
 
     fn get_mode_bits(mode: usize) -> u32 {
-        const MODE_BITS_TABLE: [u32; 14] = [10, 7, 11, 0, 0, 9, 8, 0, 0, 6, 10, 11, 12, 16];
+        const MODE_BITS_TABLE: [u32; 14] = [
+            10, 7, 11, 0xFFFFFFFF, 0xFFFFFFFF, 9, 8, 0xFFFFFFFF, 0xFFFFFFFF, 6, 10, 11, 12, 16,
+        ];
 
         MODE_BITS_TABLE[mode]
     }

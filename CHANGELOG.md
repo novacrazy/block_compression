@@ -7,7 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [unreleased]
 
+### Updated
+
+- Fix BC6H encoding for black pixels
+
 ## [0.2.0] - 2025-01-22
+
+### Added
 
 - Provide more feature flags for optional features
 - Implemented CPU based BC6H encoding

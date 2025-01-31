@@ -13,6 +13,7 @@ mod common;
 
 pub const BRICK_ALPHA_FILE_PATH: &str = "tests/images/brick-alpha.png";
 pub const MARBLE_ALPHA_FILE_PATH: &str = "tests/images/marble-alpha.png";
+pub const BLENDER_FILE_PATH: &str = "tests/images/blender.png";
 
 #[derive(Debug, Clone)]
 pub struct PsnrResult {
@@ -254,6 +255,7 @@ fn compare_psnr(image_path: &str, variant: CompressionVariant, channels: u32) {
 fn psnr_bc1() {
     compare_psnr(BRICK_FILE_PATH, CompressionVariant::BC1, 3);
     compare_psnr(MARBLE_FILE_PATH, CompressionVariant::BC1, 3);
+    compare_psnr(BLENDER_FILE_PATH, CompressionVariant::BC1, 3);
 }
 
 #[test]
@@ -274,6 +276,11 @@ fn psnr_bc6h_very_fast() {
         CompressionVariant::BC6H(BC6HSettings::very_fast()),
         3,
     );
+    compare_psnr(
+        BLENDER_FILE_PATH,
+        CompressionVariant::BC6H(BC6HSettings::very_fast()),
+        3,
+    );
 }
 
 #[test]
@@ -285,6 +292,11 @@ fn psnr_bc6h_fast() {
     );
     compare_psnr(
         MARBLE_FILE_PATH,
+        CompressionVariant::BC6H(BC6HSettings::fast()),
+        3,
+    );
+    compare_psnr(
+        BLENDER_FILE_PATH,
         CompressionVariant::BC6H(BC6HSettings::fast()),
         3,
     );
@@ -302,6 +314,11 @@ fn psnr_bc6h_basic() {
         CompressionVariant::BC6H(BC6HSettings::basic()),
         3,
     );
+    compare_psnr(
+        BLENDER_FILE_PATH,
+        CompressionVariant::BC6H(BC6HSettings::basic()),
+        3,
+    );
 }
 
 #[test]
@@ -316,6 +333,11 @@ fn psnr_bc6h_slow() {
         CompressionVariant::BC6H(BC6HSettings::slow()),
         3,
     );
+    compare_psnr(
+        BLENDER_FILE_PATH,
+        CompressionVariant::BC6H(BC6HSettings::slow()),
+        3,
+    );
 }
 
 #[test]
@@ -327,6 +349,11 @@ fn psnr_bc6h_very_slow() {
     );
     compare_psnr(
         MARBLE_FILE_PATH,
+        CompressionVariant::BC6H(BC6HSettings::very_slow()),
+        3,
+    );
+    compare_psnr(
+        BLENDER_FILE_PATH,
         CompressionVariant::BC6H(BC6HSettings::very_slow()),
         3,
     );
@@ -414,6 +441,11 @@ fn psnr_bc7_opaque_ultra_fast() {
         CompressionVariant::BC7(BC7Settings::opaque_ultra_fast()),
         3,
     );
+    compare_psnr(
+        BLENDER_FILE_PATH,
+        CompressionVariant::BC7(BC7Settings::opaque_ultra_fast()),
+        3,
+    );
 }
 
 #[test]
@@ -425,6 +457,11 @@ fn psnr_bc7_opaque_very_fast() {
     );
     compare_psnr(
         MARBLE_FILE_PATH,
+        CompressionVariant::BC7(BC7Settings::opaque_very_fast()),
+        3,
+    );
+    compare_psnr(
+        BLENDER_FILE_PATH,
         CompressionVariant::BC7(BC7Settings::opaque_very_fast()),
         3,
     );
@@ -442,6 +479,11 @@ fn psnr_bc7_opaque_fast() {
         CompressionVariant::BC7(BC7Settings::opaque_fast()),
         3,
     );
+    compare_psnr(
+        BLENDER_FILE_PATH,
+        CompressionVariant::BC7(BC7Settings::opaque_fast()),
+        3,
+    );
 }
 
 #[test]
@@ -456,6 +498,11 @@ fn psnr_bc7_opaque_basic() {
         CompressionVariant::BC7(BC7Settings::opaque_basic()),
         3,
     );
+    compare_psnr(
+        BLENDER_FILE_PATH,
+        CompressionVariant::BC7(BC7Settings::opaque_basic()),
+        3,
+    );
 }
 
 #[test]
@@ -467,6 +514,11 @@ fn psnr_bc7_opaque_slow() {
     );
     compare_psnr(
         MARBLE_FILE_PATH,
+        CompressionVariant::BC7(BC7Settings::opaque_slow()),
+        3,
+    );
+    compare_psnr(
+        BLENDER_FILE_PATH,
         CompressionVariant::BC7(BC7Settings::opaque_slow()),
         3,
     );

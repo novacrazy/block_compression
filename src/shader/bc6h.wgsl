@@ -56,6 +56,11 @@ fn rsqrt(x: f32) -> f32 {
 }
 
 fn f32_to_f16_bits(f: f32) -> u32 {
+    // Interpret all possible 0.0 floating point representations as bit-patter "0u".
+    if (f == 0.0) {
+        return 0u;
+    }
+
     let u = bitcast<u32>(quantizeToF16(f));
     let sign = (u >> 31) & 0x1u;
     let exp = ((u >> 23) & 0xFFu) - 127u + 15u;
@@ -198,8 +203,8 @@ fn get_span(mode: u32) -> f32 {
 
 fn get_mode_bits(mode: u32) -> u32 {
     const mode_bits_table = array<u32, 14>(
-        10u, 7u, 11u, 0u, 0u,
-        9u, 8u, 0u, 0u, 6u,
+        10u, 7u, 11u, 0xFFFFFFFFu, 0xFFFFFFFFu,
+        9u, 8u, 0xFFFFFFFFu, 0xFFFFFFFFu, 6u,
         10u, 11u, 12u, 16u,
     );
     return mode_bits_table[mode];
