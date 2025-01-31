@@ -12,9 +12,9 @@ use wgpu::{
     BackendOptions, Backends, Buffer, BufferDescriptor, BufferUsages, CommandEncoderDescriptor,
     ComputePassDescriptor, ComputePassTimestampWrites, Device, DeviceDescriptor,
     Dx12BackendOptions, Dx12Compiler, Error, Extent3d, Features, GlBackendOptions,
-    Gles3MinorVersion, Instance, InstanceDescriptor, InstanceFlags, Limits, Maintain, MapMode,
-    MemoryHints, PowerPreference, QueryType, Queue, Texture, TextureDescriptor, TextureDimension,
-    TextureFormat, TextureUsages, TextureViewDescriptor,
+    Gles3MinorVersion, Instance, InstanceDescriptor, InstanceFlags, Maintain, MapMode, MemoryHints,
+    PowerPreference, QueryType, Queue, Texture, TextureDescriptor, TextureDimension, TextureFormat,
+    TextureUsages, TextureViewDescriptor,
 };
 
 fn main() {
@@ -97,8 +97,8 @@ fn create_resources() -> (Arc<Device>, Arc<Queue>) {
         &DeviceDescriptor {
             label: Some("main device"),
             required_features: Features::TIMESTAMP_QUERY,
-            required_limits: Limits::downlevel_defaults(),
-            memory_hints: MemoryHints::Performance,
+            required_limits: adapter.limits(),
+            memory_hints: MemoryHints::MemoryUsage,
         },
         None,
     ))
