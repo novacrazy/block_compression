@@ -18,6 +18,7 @@
 struct Uniforms {
     width: u32,
     height: u32,
+    texture_y_offset: u32,
     blocks_offset: u32,
 }
 
@@ -65,7 +66,7 @@ fn load_block_interleaved_rgba(block: ptr<function, array<f32, 64>>, xx: u32, yy
     for (var y = 0u; y < 4u; y++) {
         for (var x = 0u; x < 4u; x++) {
             let pixel_x = xx * 4u + x;
-            let pixel_y = yy * 4u + y;
+            let pixel_y = yy * 4u + y + uniforms.texture_y_offset;
             let rgba = textureLoad(source_texture, vec2<u32>(pixel_x, pixel_y), 0);
 
             (*block)[16u * 0u + y * 4u + x] = rgba.r * 255.0;

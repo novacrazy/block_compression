@@ -17,9 +17,16 @@ fn test_multi_task_compression(variant: CompressionVariant) {
     let (marble_texture, _) =
         read_image_and_create_texture(&device, &queue, MARBLE_FILE_PATH, variant);
 
-    let bricks_size = variant.blocks_byte_size(brick_texture.width(), brick_texture.height());
-    let marble_size = variant.blocks_byte_size(marble_texture.width(), marble_texture.height());
-    let total_size = bricks_size + marble_size;
+    let brick_height = brick_texture.height();
+    let marble_height = marble_texture.height();
+
+    // Split heights in half (rounded to multiple of 4)
+    let brick_half_height = (brick_height / 2) & !3;
+    let marble_half_height = (marble_height / 2) & !3;
+
+    let bricks_half_size = variant.blocks_byte_size(brick_texture.width(), brick_half_height);
+    let marble_half_size = variant.blocks_byte_size(marble_texture.width(), marble_half_height);
+    let total_size = (bricks_half_size * 2) + (marble_half_size * 2);
 
     let blocks = create_blocks_buffer(&device, total_size as u64);
 
@@ -27,17 +34,38 @@ fn test_multi_task_compression(variant: CompressionVariant) {
         variant,
         &brick_texture.create_view(&TextureViewDescriptor::default()),
         brick_texture.width(),
-        brick_texture.height(),
+        brick_half_height,
         &blocks,
         None,
+        None,
+    );
+    block_compressor.add_compression_task(
+        variant,
+        &brick_texture.create_view(&TextureViewDescriptor::default()),
+        brick_texture.width(),
+        brick_half_height,
+        &blocks,
+        Some(brick_half_height),
+        Some(bricks_half_size as u32),
+    );
+
+    block_compressor.add_compression_task(
+        variant,
+        &marble_texture.create_view(&TextureViewDescriptor::default()),
+        marble_texture.width(),
+        marble_half_height,
+        &blocks,
+        None,
+        Some((bricks_half_size * 2) as u32),
     );
     block_compressor.add_compression_task(
         variant,
         &marble_texture.create_view(&TextureViewDescriptor::default()),
         marble_texture.width(),
-        marble_texture.height(),
+        marble_half_height,
         &blocks,
-        Some(marble_size as _),
+        Some(marble_half_height),
+        Some((bricks_half_size * 2 + marble_half_size) as u32),
     );
 
     let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor {
@@ -57,11 +85,24 @@ fn test_multi_task_compression(variant: CompressionVariant) {
 
     let blocks_data = download_blocks_data(&device, &queue, blocks);
 
-    let bricks_data_is_not_empty = !blocks_data[..bricks_size].iter().all(|&data| data == 0);
-    let marble_data_is_not_empty = !blocks_data[bricks_size..].iter().all(|&data| data == 0);
+    let brick_first_half_not_empty = !blocks_data[..bricks_half_size]
+        .iter()
+        .all(|&data| data == 0);
+    let brick_second_half_not_empty = !blocks_data[bricks_half_size..bricks_half_size * 2]
+        .iter()
+        .all(|&data| data == 0);
+    let marble_first_half_not_empty = !blocks_data
+        [bricks_half_size * 2..bricks_half_size * 2 + marble_half_size]
+        .iter()
+        .all(|&data| data == 0);
+    let marble_second_half_not_empty = !blocks_data[bricks_half_size * 2 + marble_half_size..]
+        .iter()
+        .all(|&data| data == 0);
 
-    assert!(bricks_data_is_not_empty);
-    assert!(marble_data_is_not_empty);
+    assert!(brick_first_half_not_empty, "Brick first half is empty");
+    assert!(brick_second_half_not_empty, "Brick second half is empty");
+    assert!(marble_first_half_not_empty, "Marble first half is empty");
+    assert!(marble_second_half_not_empty, "Marble second half is empty");
 }
 
 #[test]

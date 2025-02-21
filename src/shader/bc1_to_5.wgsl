@@ -18,6 +18,7 @@
 struct Uniforms {
     width: u32,
     height: u32,
+    texture_y_offset: u32,
     blocks_offset: u32,
 }
 
@@ -82,7 +83,7 @@ fn load_block_alpha_4bit(xx: u32, yy: u32) -> vec2<u32> {
     for (var y = 0u; y < 4u; y++) {
         for (var x = 0u; x < 4u; x++) {
             let pixel_x = xx * 4u + x;
-            let pixel_y = yy * 4u + y;
+            let pixel_y = yy * 4u + y + uniforms.texture_y_offset;;
             let alpha = textureLoad(source_texture, vec2<u32>(pixel_x, pixel_y), 0).a;
 
             // Convert alpha to 4 bits (0-15)

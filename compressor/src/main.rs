@@ -46,7 +46,15 @@ fn main() {
         mapped_at_creation: false,
     });
 
-    compressor.add_compression_task(variant, &texture_view, width, height, &blocks_buffer, None);
+    compressor.add_compression_task(
+        variant,
+        &texture_view,
+        width,
+        height,
+        &blocks_buffer,
+        None,
+        None,
+    );
 
     compress(&mut compressor, &device, &queue);
 

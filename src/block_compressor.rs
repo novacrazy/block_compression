@@ -22,6 +22,8 @@ struct Uniforms {
     width: u32,
     /// The height of the image data.
     height: u32,
+    /// Start row of the texture data we want to convert.
+    texture_y_offset: u32,
     /// Start of the blocks data in u32 elements.
     blocks_offset: u32,
 }
@@ -33,8 +35,10 @@ struct Task {
     uniform_offset: u32,
     #[cfg(any(feature = "bc6h", feature = "bc7"))]
     setting_offset: u32,
+    texture_y_offset: u32,
     buffer_offset: u32,
-    bind_group: BindGroup,
+    texture_view: TextureView,
+    buffer: Buffer,
 }
 
 /// Compresses texture data with a block compression algorithm using WGPU compute shader.
@@ -327,10 +331,11 @@ impl GpuBlockCompressor {
     /// * `width` - Width of the texture view in pixels
     /// * `height` - Height of the texture view in pixels
     /// * `buffer` - Destination storage buffer for the compressed data
-    /// * `offset` - Optional offset in bytes into the destination buffer
+    /// * `texture_y_offset` - Optional offset in pixel rows into the source texture
+    /// * `blocks_offset` - Optional offset in bytes into the destination buffer
     ///
     /// # Panics
-    /// - If `width` or `height` is not a multiple of 4
+    /// - If `width` or `height` or `texture_y_offset`, if set, is not a multiple of 4
     /// - If the destination `buffer` is not a storage buffer
     /// - If the destination `buffer` is too small to hold the compressed blocks at the specified offset
     #[allow(clippy::too_many_arguments)]
@@ -341,122 +346,31 @@ impl GpuBlockCompressor {
         width: u32,
         height: u32,
         buffer: &Buffer,
-        offset: Option<u32>,
+        texture_y_offset: Option<u32>,
+        blocks_offset: Option<u32>,
     ) {
         assert_eq!(height % 4, 0);
         assert_eq!(width % 4, 0);
+
+        if let Some(texture_y_offset) = texture_y_offset {
+            assert_eq!(texture_y_offset % 4, 0);
+        }
+
         assert!(
             buffer.usage().contains(BufferUsages::STORAGE),
             "buffer needs to be a storage buffer"
         );
 
         let required_size = variant.blocks_byte_size(width, height);
-        let total_size = offset.unwrap_or(0) as usize + required_size;
+        let total_size = blocks_offset.unwrap_or(0) as usize + required_size;
 
         assert!(
             buffer.size() as usize >= total_size,
             "buffer size ({}) is too small to hold compressed blocks at offset {}. Required size: {}",
             buffer.size(),
-            offset.unwrap_or(0),
+            blocks_offset.unwrap_or(0),
             total_size
         );
-
-        let bind_group_layout = self
-            .bind_group_layouts
-            .get(&variant)
-            .expect("Can't find bind group layout for variant");
-
-        let bind_group = match variant {
-            #[cfg(feature = "bc15")]
-            CompressionVariant::BC1
-            | CompressionVariant::BC2
-            | CompressionVariant::BC3
-            | CompressionVariant::BC4
-            | CompressionVariant::BC5 => self.device.create_bind_group(&BindGroupDescriptor {
-                label: Some("bind group"),
-                layout: bind_group_layout,
-                entries: &[
-                    BindGroupEntry {
-                        binding: 0,
-                        resource: BindingResource::TextureView(texture_view),
-                    },
-                    BindGroupEntry {
-                        binding: 1,
-                        resource: buffer.as_entire_binding(),
-                    },
-                    BindGroupEntry {
-                        binding: 2,
-                        resource: BindingResource::Buffer(BufferBinding {
-                            buffer: &self.uniforms_buffer,
-                            offset: 0,
-                            size: Some(NonZeroU64::new(self.uniforms_aligned_size as u64).unwrap()),
-                        }),
-                    },
-                ],
-            }),
-            #[cfg(feature = "bc6h")]
-            CompressionVariant::BC6H(..) => self.device.create_bind_group(&BindGroupDescriptor {
-                label: Some("bind group"),
-                layout: bind_group_layout,
-                entries: &[
-                    BindGroupEntry {
-                        binding: 0,
-                        resource: BindingResource::TextureView(texture_view),
-                    },
-                    BindGroupEntry {
-                        binding: 1,
-                        resource: buffer.as_entire_binding(),
-                    },
-                    BindGroupEntry {
-                        binding: 2,
-                        resource: BindingResource::Buffer(BufferBinding {
-                            buffer: &self.uniforms_buffer,
-                            offset: 0,
-                            size: Some(NonZeroU64::new(self.uniforms_aligned_size as u64).unwrap()),
-                        }),
-                    },
-                    BindGroupEntry {
-                        binding: 3,
-                        resource: BindingResource::Buffer(BufferBinding {
-                            buffer: &self.bc6h_settings_buffer,
-                            offset: 0,
-                            size: Some(NonZeroU64::new(self.bc6h_aligned_size as u64).unwrap()),
-                        }),
-                    },
-                ],
-            }),
-            #[cfg(feature = "bc7")]
-            CompressionVariant::BC7(..) => self.device.create_bind_group(&BindGroupDescriptor {
-                label: Some("bind group"),
-                layout: bind_group_layout,
-                entries: &[
-                    BindGroupEntry {
-                        binding: 0,
-                        resource: BindingResource::TextureView(texture_view),
-                    },
-                    BindGroupEntry {
-                        binding: 1,
-                        resource: buffer.as_entire_binding(),
-                    },
-                    BindGroupEntry {
-                        binding: 2,
-                        resource: BindingResource::Buffer(BufferBinding {
-                            buffer: &self.uniforms_buffer,
-                            offset: 0,
-                            size: Some(NonZeroU64::new(self.uniforms_aligned_size as u64).unwrap()),
-                        }),
-                    },
-                    BindGroupEntry {
-                        binding: 3,
-                        resource: BindingResource::Buffer(BufferBinding {
-                            buffer: &self.bc7_settings_buffer,
-                            offset: 0,
-                            size: Some(NonZeroU64::new(self.bc7_aligned_size as u64).unwrap()),
-                        }),
-                    },
-                ],
-            }),
-        };
 
         self.task.push(Task {
             variant,
@@ -465,8 +379,10 @@ impl GpuBlockCompressor {
             uniform_offset: 0,
             #[cfg(any(feature = "bc6h", feature = "bc7"))]
             setting_offset: 0,
-            buffer_offset: offset.unwrap_or(0),
-            bind_group,
+            texture_y_offset: texture_y_offset.unwrap_or(0),
+            buffer_offset: blocks_offset.unwrap_or(0),
+            texture_view: texture_view.clone(),
+            buffer: buffer.clone(),
         });
     }
 
@@ -529,6 +445,7 @@ impl GpuBlockCompressor {
             let uniforms = Uniforms {
                 width: task.width,
                 height: task.height,
+                texture_y_offset: task.texture_y_offset,
                 blocks_offset: task.buffer_offset / 4,
             };
 
@@ -624,7 +541,13 @@ impl GpuBlockCompressor {
         self.update_buffer_sizes();
         self.upload();
 
-        for task in self.task.drain(..) {
+        let mut bind_groups: Vec<BindGroup> = self
+            .task
+            .iter()
+            .map(|task| self.create_bind_group(task))
+            .collect();
+
+        for (task, bind_group) in self.task.drain(..).zip(bind_groups.drain(..)) {
             let pipeline = self
                 .pipelines
                 .get(&task.variant)
@@ -637,7 +560,7 @@ impl GpuBlockCompressor {
                 CompressionVariant::BC6H(..) => {
                     pass.set_bind_group(
                         0,
-                        &task.bind_group,
+                        &bind_group,
                         &[task.uniform_offset, task.setting_offset],
                     );
                 }
@@ -645,14 +568,14 @@ impl GpuBlockCompressor {
                 CompressionVariant::BC7(..) => {
                     pass.set_bind_group(
                         0,
-                        &task.bind_group,
+                        &bind_group,
                         &[task.uniform_offset, task.setting_offset],
                     );
                 }
                 #[allow(irrefutable_let_patterns)]
                 #[allow(unreachable_patterns)]
                 _ => {
-                    pass.set_bind_group(0, &task.bind_group, &[task.uniform_offset]);
+                    pass.set_bind_group(0, &bind_group, &[task.uniform_offset]);
                 }
             }
 
@@ -663,6 +586,105 @@ impl GpuBlockCompressor {
             let workgroup_height = (block_height + 7) / 8;
 
             pass.dispatch_workgroups(workgroup_width, workgroup_height, 1);
+        }
+    }
+
+    fn create_bind_group(&self, task: &Task) -> BindGroup {
+        let bind_group_layout = self
+            .bind_group_layouts
+            .get(&task.variant)
+            .expect("Can't find bind group layout for variant");
+
+        match task.variant {
+            #[cfg(feature = "bc15")]
+            CompressionVariant::BC1
+            | CompressionVariant::BC2
+            | CompressionVariant::BC3
+            | CompressionVariant::BC4
+            | CompressionVariant::BC5 => self.device.create_bind_group(&BindGroupDescriptor {
+                label: Some("bind group"),
+                layout: bind_group_layout,
+                entries: &[
+                    BindGroupEntry {
+                        binding: 0,
+                        resource: BindingResource::TextureView(&task.texture_view),
+                    },
+                    BindGroupEntry {
+                        binding: 1,
+                        resource: task.buffer.as_entire_binding(),
+                    },
+                    BindGroupEntry {
+                        binding: 2,
+                        resource: BindingResource::Buffer(BufferBinding {
+                            buffer: &self.uniforms_buffer,
+                            offset: 0,
+                            size: Some(NonZeroU64::new(self.uniforms_aligned_size as u64).unwrap()),
+                        }),
+                    },
+                ],
+            }),
+            #[cfg(feature = "bc6h")]
+            CompressionVariant::BC6H(..) => self.device.create_bind_group(&BindGroupDescriptor {
+                label: Some("bind group"),
+                layout: bind_group_layout,
+                entries: &[
+                    BindGroupEntry {
+                        binding: 0,
+                        resource: BindingResource::TextureView(&task.texture_view),
+                    },
+                    BindGroupEntry {
+                        binding: 1,
+                        resource: task.buffer.as_entire_binding(),
+                    },
+                    BindGroupEntry {
+                        binding: 2,
+                        resource: BindingResource::Buffer(BufferBinding {
+                            buffer: &self.uniforms_buffer,
+                            offset: 0,
+                            size: Some(NonZeroU64::new(self.uniforms_aligned_size as u64).unwrap()),
+                        }),
+                    },
+                    BindGroupEntry {
+                        binding: 3,
+                        resource: BindingResource::Buffer(BufferBinding {
+                            buffer: &self.bc6h_settings_buffer,
+                            offset: 0,
+                            size: Some(NonZeroU64::new(self.bc6h_aligned_size as u64).unwrap()),
+                        }),
+                    },
+                ],
+            }),
+            #[cfg(feature = "bc7")]
+            CompressionVariant::BC7(..) => self.device.create_bind_group(&BindGroupDescriptor {
+                label: Some("bind group"),
+                layout: bind_group_layout,
+                entries: &[
+                    BindGroupEntry {
+                        binding: 0,
+                        resource: BindingResource::TextureView(&task.texture_view),
+                    },
+                    BindGroupEntry {
+                        binding: 1,
+                        resource: task.buffer.as_entire_binding(),
+                    },
+                    BindGroupEntry {
+                        binding: 2,
+                        resource: BindingResource::Buffer(BufferBinding {
+                            buffer: &self.uniforms_buffer,
+                            offset: 0,
+                            size: Some(NonZeroU64::new(self.uniforms_aligned_size as u64).unwrap()),
+                        }),
+                    },
+                    BindGroupEntry {
+                        binding: 3,
+                        resource: BindingResource::Buffer(BufferBinding {
+                            buffer: &self.bc7_settings_buffer,
+                            offset: 0,
+                            size: Some(NonZeroU64::new(self.bc7_aligned_size as u64).unwrap()),
+                        }),
+                    },
+                ],
+            }),
         }
     }
 }

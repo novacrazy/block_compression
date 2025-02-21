@@ -166,6 +166,7 @@ fn compress_image(image_path: &str, variant: CompressionVariant) -> (u32, u32, V
         texture.height(),
         &blocks,
         None,
+        None,
     );
 
     let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor {
