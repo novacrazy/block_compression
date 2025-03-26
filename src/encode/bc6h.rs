@@ -96,6 +96,8 @@ impl<'a> BlockCompressorBC6H<'a> {
         }
     }
 
+    #[allow(dead_code)]
+    #[inline]
     pub(crate) fn store_data(
         &self,
         blocks_buffer: &mut [u8],
@@ -111,6 +113,18 @@ impl<'a> BlockCompressorBC6H<'a> {
             blocks_buffer[byte_offset + 1] = (value >> 8) as u8;
             blocks_buffer[byte_offset + 2] = (value >> 16) as u8;
             blocks_buffer[byte_offset + 3] = (value >> 24) as u8;
+        }
+    }
+
+    #[allow(dead_code)]
+    #[inline]
+    pub(crate) fn store_data1(&self, block: &mut [u8]) {
+        for (index, &value) in self.data[..4].iter().enumerate() {
+            let byte_offset = index * 4;
+            block[byte_offset] = value as u8;
+            block[byte_offset + 1] = (value >> 8) as u8;
+            block[byte_offset + 2] = (value >> 16) as u8;
+            block[byte_offset + 3] = (value >> 24) as u8;
         }
     }
 

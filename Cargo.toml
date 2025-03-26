@@ -25,11 +25,15 @@ default = ["bc15", "bc6h", "bc7", "wgpu"]
 bc15 = []
 bc6h = ["half"]
 bc7 = []
+rayon = ["dep:rayon", "dep:strength_reduce"]
 
 [dependencies]
 bytemuck = { workspace = true, features = ["derive"] }
 half = { workspace = true, optional = true, features = ["bytemuck"] }
+rayon = { workspace = true, optional = true }
 wgpu = { workspace = true, optional = true }
+strength_reduce = { workspace = true, optional = true }
+
 
 [dev-dependencies]
 image = { workspace = true, features = ["png"] }
@@ -43,12 +47,12 @@ half = "2"
 image = { version = "0.25", default-features = false }
 pollster = "0.4"
 wgpu = "24"
+rayon = "1.10.0"
+strength_reduce = "0.2.4"
 
 [package.metadata.docs.rs]
 features = ["bc6h", "bc7", "half"]
 rustdoc-args = ["--cfg", "docsrs"]
 
 [workspace]
-members = [
-    "compressor",
-]
+members = ["compressor"]

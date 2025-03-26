@@ -250,6 +250,12 @@ pub fn compress_rgba16(
     }
 }
 
+#[cfg(feature = "rayon")]
+use rayon::prelude::*;
+
+#[cfg(feature = "rayon")]
+use strength_reduce::StrengthReducedUsize;
+
 #[cfg(feature = "bc15")]
 fn compress_bc1(
     rgba_data: &[u8],
@@ -258,6 +264,29 @@ fn compress_bc1(
     block_height: usize,
     stride: usize,
 ) {
+    #[cfg(feature = "rayon")]
+    {
+        const BLOCK_WORDS: usize = 2; // 64-bit blocks
+
+        // use strength_reduce to optimize division and modulo
+        let bw = StrengthReducedUsize::new(block_width);
+
+        blocks_buffer[..(block_width * block_height * BLOCK_WORDS * 4)]
+            .par_chunks_exact_mut(BLOCK_WORDS * 4)
+            .enumerate()
+            .for_each(|(idx, block)| {
+                //let (xx, yy) = (idx % block_width, idx / block_width);
+                let (yy, xx) = StrengthReducedUsize::div_rem(idx, bw);
+
+                let mut block_compressor = BlockCompressorBC15::default();
+                block_compressor.load_block_interleaved_rgba(rgba_data, xx, yy, stride);
+
+                let color_result = block_compressor.compress_block_bc1_core();
+                BlockCompressorBC15::store_data1(block, &color_result);
+            });
+    }
+
+    #[cfg(not(feature = "rayon"))]
     for yy in 0..block_height {
         for xx in 0..block_width {
             let mut block_compressor = BlockCompressorBC15::default();
@@ -277,6 +306,38 @@ fn compress_bc2(
     block_height: usize,
     stride: usize,
 ) {
+    #[cfg(feature = "rayon")]
+    {
+        const BLOCK_WORDS: usize = 4; // 128-bit blocks
+
+        let bw = StrengthReducedUsize::new(block_width);
+
+        blocks_buffer[..(block_width * block_height * BLOCK_WORDS * 4)]
+            .par_chunks_exact_mut(BLOCK_WORDS * 4)
+            .enumerate()
+            .for_each(|(idx, block)| {
+                let (yy, xx) = StrengthReducedUsize::div_rem(idx, bw);
+
+                let mut block_compressor = BlockCompressorBC15::default();
+                let mut compressed_data: [u32; BLOCK_WORDS] = [0; 4];
+
+                let alpha_result =
+                    block_compressor.load_block_alpha_4bit(rgba_data, xx, yy, stride);
+
+                compressed_data[0] = alpha_result[0];
+                compressed_data[1] = alpha_result[1];
+
+                block_compressor.load_block_interleaved_rgba(rgba_data, xx, yy, stride);
+
+                let color_result = block_compressor.compress_block_bc1_core();
+                compressed_data[2] = color_result[0];
+                compressed_data[3] = color_result[1];
+
+                BlockCompressorBC15::store_data1(block, &compressed_data);
+            });
+    }
+
+    #[cfg(not(feature = "rayon"))]
     for yy in 0..block_height {
         for xx in 0..block_width {
             let mut block_compressor = BlockCompressorBC15::default();
@@ -293,7 +354,7 @@ fn compress_bc2(
             compressed_data[2] = color_result[0];
             compressed_data[3] = color_result[1];
 
-            block_compressor.store_data(blocks_buffer, block_width, xx, yy, &compressed_data);
+            BlockCompressorBC15::store_data(blocks_buffer, block_width, xx, yy, &compressed_data);
         }
     }
 }
@@ -306,6 +367,37 @@ fn compress_bc3(
     block_height: usize,
     stride: usize,
 ) {
+    #[cfg(feature = "rayon")]
+    {
+        const BLOCK_WORDS: usize = 4;
+
+        let bw = StrengthReducedUsize::new(block_width);
+
+        blocks_buffer[..(block_width * block_height * BLOCK_WORDS * 4)]
+            .par_chunks_exact_mut(BLOCK_WORDS * 4)
+            .enumerate()
+            .for_each(|(idx, block)| {
+                let (yy, xx) = StrengthReducedUsize::div_rem(idx, bw);
+
+                let mut block_compressor = BlockCompressorBC15::default();
+
+                let mut compressed_data: [u32; BLOCK_WORDS] = [0; 4];
+
+                block_compressor.load_block_interleaved_rgba(rgba_data, xx, yy, stride);
+
+                let alpha_result = block_compressor.compress_block_bc3_alpha();
+                compressed_data[0] = alpha_result[0];
+                compressed_data[1] = alpha_result[1];
+
+                let color_result = block_compressor.compress_block_bc1_core();
+                compressed_data[2] = color_result[0];
+                compressed_data[3] = color_result[1];
+
+                BlockCompressorBC15::store_data1(block, &compressed_data);
+            });
+    }
+
+    #[cfg(not(feature = "rayon"))]
     for yy in 0..block_height {
         for xx in 0..block_width {
             let mut block_compressor = BlockCompressorBC15::default();
@@ -322,7 +414,7 @@ fn compress_bc3(
             compressed_data[2] = color_result[0];
             compressed_data[3] = color_result[1];
 
-            block_compressor.store_data(blocks_buffer, block_width, xx, yy, &compressed_data);
+            BlockCompressorBC15::store_data(blocks_buffer, block_width, xx, yy, &compressed_data);
         }
     }
 }
@@ -335,6 +427,33 @@ fn compress_bc4(
     block_height: usize,
     stride: usize,
 ) {
+    #[cfg(feature = "rayon")]
+    {
+        const BLOCK_WORDS: usize = 2;
+
+        let bw = StrengthReducedUsize::new(block_width);
+
+        blocks_buffer[..(block_width * block_height * BLOCK_WORDS * 4)]
+            .par_chunks_exact_mut(BLOCK_WORDS * 4)
+            .enumerate()
+            .for_each(|(idx, block)| {
+                let (yy, xx) = StrengthReducedUsize::div_rem(idx, bw);
+
+                let mut block_compressor = BlockCompressorBC15::default();
+
+                let mut compressed_data: [u32; BLOCK_WORDS] = [0; 2];
+
+                block_compressor.load_block_r_8bit(rgba_data, xx, yy, stride);
+
+                let color_result = block_compressor.compress_block_bc3_alpha();
+                compressed_data[0] = color_result[0];
+                compressed_data[1] = color_result[1];
+
+                BlockCompressorBC15::store_data1(block, &compressed_data);
+            });
+    }
+
+    #[cfg(not(feature = "rayon"))]
     for yy in 0..block_height {
         for xx in 0..block_width {
             let mut block_compressor = BlockCompressorBC15::default();
@@ -347,7 +466,7 @@ fn compress_bc4(
             compressed_data[0] = color_result[0];
             compressed_data[1] = color_result[1];
 
-            block_compressor.store_data(blocks_buffer, block_width, xx, yy, &compressed_data);
+            BlockCompressorBC15::store_data(blocks_buffer, block_width, xx, yy, &compressed_data);
         }
     }
 }
@@ -360,6 +479,38 @@ fn compress_bc5(
     block_height: usize,
     stride: usize,
 ) {
+    #[cfg(feature = "rayon")]
+    {
+        const BLOCK_WORDS: usize = 4;
+
+        let bw = StrengthReducedUsize::new(block_width);
+
+        blocks_buffer[..(block_width * block_height * BLOCK_WORDS * 4)]
+            .par_chunks_exact_mut(BLOCK_WORDS * 4)
+            .enumerate()
+            .for_each(|(idx, block)| {
+                let (yy, xx) = StrengthReducedUsize::div_rem(idx, bw);
+
+                let mut block_compressor = BlockCompressorBC15::default();
+                let mut compressed_data: [u32; BLOCK_WORDS] = [0; 4];
+
+                block_compressor.load_block_r_8bit(rgba_data, xx, yy, stride);
+
+                let red_result = block_compressor.compress_block_bc3_alpha();
+                compressed_data[0] = red_result[0];
+                compressed_data[1] = red_result[1];
+
+                block_compressor.load_block_g_8bit(rgba_data, xx, yy, stride);
+
+                let green_result = block_compressor.compress_block_bc3_alpha();
+                compressed_data[2] = green_result[0];
+                compressed_data[3] = green_result[1];
+
+                BlockCompressorBC15::store_data1(block, &compressed_data);
+            });
+    }
+
+    #[cfg(not(feature = "rayon"))]
     for yy in 0..block_height {
         for xx in 0..block_width {
             let mut block_compressor = BlockCompressorBC15::default();
@@ -378,7 +529,7 @@ fn compress_bc5(
             compressed_data[2] = green_result[0];
             compressed_data[3] = green_result[1];
 
-            block_compressor.store_data(blocks_buffer, block_width, xx, yy, &compressed_data);
+            BlockCompressorBC15::store_data(blocks_buffer, block_width, xx, yy, &compressed_data);
         }
     }
 }
@@ -392,6 +543,26 @@ fn compress_bc6h_8bit(
     stride: usize,
     settings: &BC6HSettings,
 ) {
+    #[cfg(feature = "rayon")]
+    {
+        const BLOCK_WORDS: usize = 4;
+
+        let bw = StrengthReducedUsize::new(block_width);
+
+        blocks_buffer[..(block_width * block_height * BLOCK_WORDS * 4)]
+            .par_chunks_exact_mut(BLOCK_WORDS * 4)
+            .enumerate()
+            .for_each(|(idx, block)| {
+                let (yy, xx) = StrengthReducedUsize::div_rem(idx, bw);
+
+                let mut block_compressor = BlockCompressorBC6H::new(settings);
+                block_compressor.load_block_interleaved_8bit(rgba_data, xx, yy, stride);
+                block_compressor.compress_bc6h_core();
+                block_compressor.store_data1(block);
+            });
+    }
+
+    #[cfg(not(feature = "rayon"))]
     for yy in 0..block_height {
         for xx in 0..block_width {
             let mut block_compressor = BlockCompressorBC6H::new(settings);
@@ -411,6 +582,26 @@ fn compress_bc6h_16bit(
     stride: usize,
     settings: &BC6HSettings,
 ) {
+    #[cfg(feature = "rayon")]
+    {
+        const BLOCK_WORDS: usize = 4;
+
+        let bw = StrengthReducedUsize::new(block_width);
+
+        blocks_buffer[..(block_width * block_height * BLOCK_WORDS * 4)]
+            .par_chunks_exact_mut(BLOCK_WORDS * 4)
+            .enumerate()
+            .for_each(|(idx, block)| {
+                let (yy, xx) = StrengthReducedUsize::div_rem(idx, bw);
+
+                let mut block_compressor = BlockCompressorBC6H::new(settings);
+                block_compressor.load_block_interleaved_16bit(rgba_data, xx, yy, stride);
+                block_compressor.compress_bc6h_core();
+                block_compressor.store_data1(block);
+            });
+    }
+
+    #[cfg(not(feature = "rayon"))]
     for yy in 0..block_height {
         for xx in 0..block_width {
             let mut block_compressor = BlockCompressorBC6H::new(settings);
@@ -430,6 +621,27 @@ fn compress_bc7(
     stride: usize,
     settings: &BC7Settings,
 ) {
+    #[cfg(feature = "rayon")]
+    {
+        const BLOCK_WORDS: usize = 4;
+
+        let bw = StrengthReducedUsize::new(block_width);
+
+        blocks_buffer[..(block_width * block_height * BLOCK_WORDS * 4)]
+            .par_chunks_exact_mut(BLOCK_WORDS * 4)
+            .enumerate()
+            .for_each(|(idx, block)| {
+                let (yy, xx) = StrengthReducedUsize::div_rem(idx, bw);
+
+                let mut block_compressor = BlockCompressorBC7::new(settings);
+                block_compressor.load_block_interleaved_rgba(rgba_data, xx, yy, stride);
+                block_compressor.compute_opaque_err();
+                block_compressor.compress_block_bc7_core();
+                block_compressor.store_data1(block);
+            });
+    }
+
+    #[cfg(not(feature = "rayon"))]
     for yy in 0..block_height {
         for xx in 0..block_width {
             let mut block_compressor = BlockCompressorBC7::new(settings);
