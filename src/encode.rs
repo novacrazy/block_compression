@@ -266,13 +266,13 @@ fn compress_bc1(
 ) {
     #[cfg(feature = "rayon")]
     {
-        const BLOCK_WORDS: usize = 2; // 64-bit blocks
+        const BLOCK_BYTES: usize = 8;
 
         // use strength_reduce to optimize division and modulo
         let bw = StrengthReducedUsize::new(block_width);
 
-        blocks_buffer[..(block_width * block_height * BLOCK_WORDS * 4)]
-            .par_chunks_exact_mut(BLOCK_WORDS * 4)
+        blocks_buffer[..(block_width * block_height * BLOCK_BYTES)]
+            .par_chunks_exact_mut(BLOCK_BYTES)
             .enumerate()
             .for_each(|(idx, block)| {
                 //let (xx, yy) = (idx % block_width, idx / block_width);
@@ -308,18 +308,19 @@ fn compress_bc2(
 ) {
     #[cfg(feature = "rayon")]
     {
-        const BLOCK_WORDS: usize = 4; // 128-bit blocks
+        const BLOCK_BYTES: usize = 16;
+        const BLOCK_WORDS: usize = BLOCK_BYTES / 4;
 
         let bw = StrengthReducedUsize::new(block_width);
 
-        blocks_buffer[..(block_width * block_height * BLOCK_WORDS * 4)]
-            .par_chunks_exact_mut(BLOCK_WORDS * 4)
+        blocks_buffer[..(block_width * block_height * BLOCK_BYTES)]
+            .par_chunks_exact_mut(BLOCK_BYTES)
             .enumerate()
             .for_each(|(idx, block)| {
                 let (yy, xx) = StrengthReducedUsize::div_rem(idx, bw);
 
                 let mut block_compressor = BlockCompressorBC15::default();
-                let mut compressed_data: [u32; BLOCK_WORDS] = [0; 4];
+                let mut compressed_data: [u32; BLOCK_WORDS] = [0; BLOCK_WORDS];
 
                 let alpha_result =
                     block_compressor.load_block_alpha_4bit(rgba_data, xx, yy, stride);
@@ -369,19 +370,20 @@ fn compress_bc3(
 ) {
     #[cfg(feature = "rayon")]
     {
-        const BLOCK_WORDS: usize = 4;
+        const BLOCK_BYTES: usize = 16;
+        const BLOCK_WORDS: usize = BLOCK_BYTES / 4;
 
         let bw = StrengthReducedUsize::new(block_width);
 
-        blocks_buffer[..(block_width * block_height * BLOCK_WORDS * 4)]
-            .par_chunks_exact_mut(BLOCK_WORDS * 4)
+        blocks_buffer[..(block_width * block_height * BLOCK_BYTES)]
+            .par_chunks_exact_mut(BLOCK_BYTES)
             .enumerate()
             .for_each(|(idx, block)| {
                 let (yy, xx) = StrengthReducedUsize::div_rem(idx, bw);
 
                 let mut block_compressor = BlockCompressorBC15::default();
 
-                let mut compressed_data: [u32; BLOCK_WORDS] = [0; 4];
+                let mut compressed_data: [u32; BLOCK_WORDS] = [0; BLOCK_WORDS];
 
                 block_compressor.load_block_interleaved_rgba(rgba_data, xx, yy, stride);
 
@@ -429,19 +431,20 @@ fn compress_bc4(
 ) {
     #[cfg(feature = "rayon")]
     {
-        const BLOCK_WORDS: usize = 2;
+        const BLOCK_BYTES: usize = 8;
+        const BLOCK_WORDS: usize = BLOCK_BYTES / 4;
 
         let bw = StrengthReducedUsize::new(block_width);
 
-        blocks_buffer[..(block_width * block_height * BLOCK_WORDS * 4)]
-            .par_chunks_exact_mut(BLOCK_WORDS * 4)
+        blocks_buffer[..(block_width * block_height * BLOCK_BYTES)]
+            .par_chunks_exact_mut(BLOCK_BYTES)
             .enumerate()
             .for_each(|(idx, block)| {
                 let (yy, xx) = StrengthReducedUsize::div_rem(idx, bw);
 
                 let mut block_compressor = BlockCompressorBC15::default();
 
-                let mut compressed_data: [u32; BLOCK_WORDS] = [0; 2];
+                let mut compressed_data: [u32; BLOCK_WORDS] = [0; BLOCK_WORDS];
 
                 block_compressor.load_block_r_8bit(rgba_data, xx, yy, stride);
 
@@ -481,18 +484,19 @@ fn compress_bc5(
 ) {
     #[cfg(feature = "rayon")]
     {
-        const BLOCK_WORDS: usize = 4;
+        const BLOCK_BYTES: usize = 16;
+        const BLOCK_WORDS: usize = BLOCK_BYTES / 4;
 
         let bw = StrengthReducedUsize::new(block_width);
 
-        blocks_buffer[..(block_width * block_height * BLOCK_WORDS * 4)]
-            .par_chunks_exact_mut(BLOCK_WORDS * 4)
+        blocks_buffer[..(block_width * block_height * BLOCK_BYTES)]
+            .par_chunks_exact_mut(BLOCK_BYTES)
             .enumerate()
             .for_each(|(idx, block)| {
                 let (yy, xx) = StrengthReducedUsize::div_rem(idx, bw);
 
                 let mut block_compressor = BlockCompressorBC15::default();
-                let mut compressed_data: [u32; BLOCK_WORDS] = [0; 4];
+                let mut compressed_data: [u32; BLOCK_WORDS] = [0; BLOCK_WORDS];
 
                 block_compressor.load_block_r_8bit(rgba_data, xx, yy, stride);
 
@@ -545,12 +549,12 @@ fn compress_bc6h_8bit(
 ) {
     #[cfg(feature = "rayon")]
     {
-        const BLOCK_WORDS: usize = 4;
+        const BLOCK_BYTES: usize = 16;
 
         let bw = StrengthReducedUsize::new(block_width);
 
-        blocks_buffer[..(block_width * block_height * BLOCK_WORDS * 4)]
-            .par_chunks_exact_mut(BLOCK_WORDS * 4)
+        blocks_buffer[..(block_width * block_height * BLOCK_BYTES)]
+            .par_chunks_exact_mut(BLOCK_BYTES)
             .enumerate()
             .for_each(|(idx, block)| {
                 let (yy, xx) = StrengthReducedUsize::div_rem(idx, bw);
@@ -584,12 +588,12 @@ fn compress_bc6h_16bit(
 ) {
     #[cfg(feature = "rayon")]
     {
-        const BLOCK_WORDS: usize = 4;
+        const BLOCK_BYTES: usize = 16;
 
         let bw = StrengthReducedUsize::new(block_width);
 
-        blocks_buffer[..(block_width * block_height * BLOCK_WORDS * 4)]
-            .par_chunks_exact_mut(BLOCK_WORDS * 4)
+        blocks_buffer[..(block_width * block_height * BLOCK_BYTES)]
+            .par_chunks_exact_mut(BLOCK_BYTES)
             .enumerate()
             .for_each(|(idx, block)| {
                 let (yy, xx) = StrengthReducedUsize::div_rem(idx, bw);
@@ -623,12 +627,12 @@ fn compress_bc7(
 ) {
     #[cfg(feature = "rayon")]
     {
-        const BLOCK_WORDS: usize = 4;
+        const BLOCK_BYTES: usize = 16;
 
         let bw = StrengthReducedUsize::new(block_width);
 
-        blocks_buffer[..(block_width * block_height * BLOCK_WORDS * 4)]
-            .par_chunks_exact_mut(BLOCK_WORDS * 4)
+        blocks_buffer[..(block_width * block_height * BLOCK_BYTES)]
+            .par_chunks_exact_mut(BLOCK_BYTES)
             .enumerate()
             .for_each(|(idx, block)| {
                 let (yy, xx) = StrengthReducedUsize::div_rem(idx, bw);
