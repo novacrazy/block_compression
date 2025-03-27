@@ -266,7 +266,7 @@ fn compress_bc1(
 ) {
     #[cfg(feature = "rayon")]
     {
-        const BLOCK_BYTES: usize = 8;
+        const BLOCK_BYTES: usize = CompressionVariant::BC1.block_byte_size() as usize;
 
         // use strength_reduce to optimize division and modulo
         let bw = StrengthReducedUsize::new(block_width);
@@ -308,7 +308,7 @@ fn compress_bc2(
 ) {
     #[cfg(feature = "rayon")]
     {
-        const BLOCK_BYTES: usize = 16;
+        const BLOCK_BYTES: usize = CompressionVariant::BC2.block_byte_size() as usize;
         const BLOCK_WORDS: usize = BLOCK_BYTES / 4;
 
         let bw = StrengthReducedUsize::new(block_width);
@@ -370,7 +370,7 @@ fn compress_bc3(
 ) {
     #[cfg(feature = "rayon")]
     {
-        const BLOCK_BYTES: usize = 16;
+        const BLOCK_BYTES: usize = CompressionVariant::BC3.block_byte_size() as usize;
         const BLOCK_WORDS: usize = BLOCK_BYTES / 4;
 
         let bw = StrengthReducedUsize::new(block_width);
@@ -431,7 +431,7 @@ fn compress_bc4(
 ) {
     #[cfg(feature = "rayon")]
     {
-        const BLOCK_BYTES: usize = 8;
+        const BLOCK_BYTES: usize = CompressionVariant::BC4.block_byte_size() as usize;
         const BLOCK_WORDS: usize = BLOCK_BYTES / 4;
 
         let bw = StrengthReducedUsize::new(block_width);
@@ -484,7 +484,7 @@ fn compress_bc5(
 ) {
     #[cfg(feature = "rayon")]
     {
-        const BLOCK_BYTES: usize = 16;
+        const BLOCK_BYTES: usize = CompressionVariant::BC5.block_byte_size() as usize;
         const BLOCK_WORDS: usize = BLOCK_BYTES / 4;
 
         let bw = StrengthReducedUsize::new(block_width);
