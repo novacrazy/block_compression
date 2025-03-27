@@ -1,3 +1,5 @@
+#[repr(transparent)]
+#[derive(Clone, Copy)]
 pub(crate) struct BlockCompressorBC15 {
     block: [f32; 64],
 }
@@ -17,21 +19,22 @@ impl BlockCompressorBC15 {
         stride: usize,
     ) {
         for y in 0..4 {
+            let pixel_y = yy * 4 + y;
+
             for x in 0..4 {
                 let pixel_x = xx * 4 + x;
-                let pixel_y = yy * 4 + y;
 
                 let offset = pixel_y * stride + pixel_x * 4;
 
-                let red = rgba_data[offset] as f32;
-                let green = rgba_data[offset + 1] as f32;
-                let blue = rgba_data[offset + 2] as f32;
-                let alpha = rgba_data[offset + 3] as f32;
+                // avoid multiple bounds checks by taking a slice here
+                let rgba = &rgba_data[offset..(offset + 4)];
 
-                self.block[y * 4 + x] = red;
-                self.block[16 + y * 4 + x] = green;
-                self.block[32 + y * 4 + x] = blue;
-                self.block[48 + y * 4 + x] = alpha;
+                let offset = y * 4 + x;
+
+                self.block[offset] = rgba[0] as f32;
+                self.block[16 + offset] = rgba[1] as f32;
+                self.block[32 + offset] = rgba[2] as f32;
+                self.block[48 + offset] = rgba[3] as f32;
             }
         }
     }
@@ -44,14 +47,15 @@ impl BlockCompressorBC15 {
         stride: usize,
     ) {
         for y in 0..4 {
+            let pixel_y = yy * 4 + y;
+
             for x in 0..4 {
                 let pixel_x = xx * 4 + x;
-                let pixel_y = yy * 4 + y;
 
                 let offset = pixel_y * stride + pixel_x * 4;
-                let red = rgba_data[offset] as f32;
 
-                self.block[48 + y * 4 + x] = red;
+                // copy red channel only
+                self.block[48 + y * 4 + x] = rgba_data[offset] as f32;
             }
         }
     }
@@ -64,14 +68,15 @@ impl BlockCompressorBC15 {
         stride: usize,
     ) {
         for y in 0..4 {
+            let pixel_y = yy * 4 + y;
+
             for x in 0..4 {
                 let pixel_x = xx * 4 + x;
-                let pixel_y = yy * 4 + y;
 
                 let offset = pixel_y * stride + pixel_x * 4;
-                let green = rgba_data[offset + 1] as f32;
 
-                self.block[48 + y * 4 + x] = green;
+                // copy green channel only
+                self.block[48 + y * 4 + x] = rgba_data[offset + 1] as f32;
             }
         }
     }
@@ -86,9 +91,10 @@ impl BlockCompressorBC15 {
         let mut alpha_bits = [0; 2];
 
         for y in 0..4 {
+            let pixel_y = yy * 4 + y;
+
             for x in 0..4 {
                 let pixel_x = xx * 4 + x;
-                let pixel_y = yy * 4 + y;
 
                 let offset = pixel_y * stride + pixel_x * 4;
                 let alpha = rgba_data[offset + 3] as f32 / 255.0;
@@ -119,12 +125,17 @@ impl BlockCompressorBC15 {
     ) {
         let offset = (yy * block_width + xx) * (data.len() * 4);
 
+        // removes some bounds checks to slice it here
+        let blocks_buffer = &mut blocks_buffer[offset..];
+
         for (index, &value) in data.iter().enumerate() {
-            let byte_offset = offset + index * 4;
-            blocks_buffer[byte_offset] = value as u8;
-            blocks_buffer[byte_offset + 1] = (value >> 8) as u8;
-            blocks_buffer[byte_offset + 2] = (value >> 16) as u8;
-            blocks_buffer[byte_offset + 3] = (value >> 24) as u8;
+            let byte_offset = index * 4;
+            blocks_buffer[byte_offset..(byte_offset + 4)].copy_from_slice(&value.to_le_bytes());
+
+            // blocks_buffer[byte_offset] = value as u8;
+            // blocks_buffer[byte_offset + 1] = (value >> 8) as u8;
+            // blocks_buffer[byte_offset + 2] = (value >> 16) as u8;
+            // blocks_buffer[byte_offset + 3] = (value >> 24) as u8;
         }
     }
 
@@ -133,10 +144,13 @@ impl BlockCompressorBC15 {
     pub(crate) fn store_data1(block: &mut [u8], data: &[u32]) {
         for (index, &value) in data.iter().enumerate() {
             let byte_offset = index * 4;
-            block[byte_offset] = value as u8;
-            block[byte_offset + 1] = (value >> 8) as u8;
-            block[byte_offset + 2] = (value >> 16) as u8;
-            block[byte_offset + 3] = (value >> 24) as u8;
+
+            block[byte_offset..(byte_offset + 4)].copy_from_slice(&value.to_le_bytes());
+
+            // block[byte_offset] = value as u8;
+            // block[byte_offset + 1] = (value >> 8) as u8;
+            // block[byte_offset + 2] = (value >> 16) as u8;
+            // block[byte_offset + 3] = (value >> 24) as u8;
         }
     }
 
